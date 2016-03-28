@@ -170,6 +170,7 @@ object CatalystTypeConverters {
             convertedIterable += elementConverter.toCatalyst(item)
           }
           new GenericArrayData(convertedIterable.toArray)
+        case a: ArrayData => a
       }
     }
 
@@ -206,6 +207,7 @@ object CatalystTypeConverters {
       scalaValue match {
         case map: Map[_, _] => ArrayBasedMapData(map, keyFunction, valueFunction)
         case javaMap: JavaMap[_, _] => ArrayBasedMapData(javaMap, keyFunction, valueFunction)
+        case m: MapData => m
       }
     }
 
@@ -252,6 +254,8 @@ object CatalystTypeConverters {
           idx += 1
         }
         new GenericInternalRow(ar)
+
+      case row: InternalRow => row
     }
 
     override def toScala(row: InternalRow): Row = {
