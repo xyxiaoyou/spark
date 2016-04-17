@@ -66,7 +66,8 @@ private[spark] class CoarseGrainedExecutorBackend(
       case Success(msg) =>
         // Always receive `true`. Just ignore it
       case Failure(e) =>
-        exitExecutor(1, s"Cannot register with driver: $driverUrl", e, notifyDriver = false)
+        logError(s"Cannot register with driver: $driverUrl", e)
+        exitExecutor()
     }(ThreadUtils.sameThread)
   }
 
@@ -87,11 +88,13 @@ private[spark] class CoarseGrainedExecutorBackend(
       }
 
     case RegisterExecutorFailed(message) =>
-      exitExecutor(1, "Slave registration failed: " + message)
+      logError("Slave registration failed: " + message)
+      exitExecutor()
 
     case LaunchTask(data) =>
       if (executor == null) {
-        exitExecutor(1, "Received LaunchTask command but executor was null")
+        logError("Received LaunchTask command but executor was null")
+        exitExecutor()
       } else {
         val taskDesc = TaskDescription.decode(data.value)
         logInfo("Got assigned task " + taskDesc.taskId)
@@ -100,7 +103,8 @@ private[spark] class CoarseGrainedExecutorBackend(
 
     case KillTask(taskId, _, interruptThread, reason) =>
       if (executor == null) {
-        exitExecutor(1, "Received KillTask command but executor was null")
+        logError("Received KillTask command but executor was null")
+        exitExecutor()
       } else {
         executor.killTask(taskId, interruptThread, reason)
       }
@@ -133,8 +137,8 @@ private[spark] class CoarseGrainedExecutorBackend(
     if (stopping.get()) {
       logInfo(s"Driver from $remoteAddress disconnected during shutdown")
     } else if (driver.exists(_.address == remoteAddress)) {
-      exitExecutor(1, s"Driver $remoteAddress disassociated! Shutting down.", null,
-        notifyDriver = false)
+      logError(s"Driver $remoteAddress disassociated! Shutting down.")
+      exitExecutor()
     } else {
       logWarning(s"An unknown ($remoteAddress) driver disconnected.")
     }
