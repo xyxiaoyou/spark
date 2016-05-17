@@ -31,6 +31,8 @@ import py4j
 from pyspark import SparkConf
 from pyspark.context import SparkContext
 from pyspark.sql import SparkSession, SQLContext
+from pyspark.sql.snappy import SnappyContext
+from pyspark.storagelevel import StorageLevel
 
 if os.environ.get("SPARK_EXECUTOR_URI"):
     SparkContext.setSystemProperty("spark.executor.uri", os.environ["SPARK_EXECUTOR_URI"])
@@ -38,6 +40,8 @@ if os.environ.get("SPARK_EXECUTOR_URI"):
 SparkContext._ensure_initialized()
 
 try:
+    sqlContext = SnappyContext(sc)
+except py4j.protocol.Py4JError:
     # Try to access HiveConf, it will raise exception if Hive is not added
     conf = SparkConf()
     if conf.get('spark.sql.catalogImplementation', 'hive').lower() == 'hive':
