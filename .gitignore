@@ -82,8 +82,10 @@ spark-warehouse/
 # For R session data
 .RData
 .RHistory
+.Rhistory
 *.Rproj
 *.Rproj.*
+
 .Rproj.user
 
 # gradle specific

@@ -14,24 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/*
- * Changes for SnappyData data platform.
- *
- * Portions Copyright (c) 2016 SnappyData, Inc. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you
- * may not use this file except in compliance with the License. You
- * may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
- * implied. See the License for the specific language governing
- * permissions and limitations under the License. See accompanying
- * LICENSE file.
- */
 
 package org.apache.spark.sql.catalyst.expressions.codegen
 
@@ -62,7 +44,7 @@ object GenerateUnsafeProjection extends CodeGenerator[Seq[Expression], UnsafePro
   }
 
   // TODO: if the nullability of field is correct, we can use it to save null check.
-  private[sql] def writeStructToBuffer(
+  private def writeStructToBuffer(
       ctx: CodegenContext,
       input: String,
       fieldTypes: Seq[DataType],
@@ -185,7 +167,7 @@ object GenerateUnsafeProjection extends CodeGenerator[Seq[Expression], UnsafePro
   }
 
   // TODO: if the nullability of array element is correct, we can use it to save null check.
-  private[sql] def writeArrayToBuffer(
+  private def writeArrayToBuffer(
       ctx: CodegenContext,
       input: String,
       elementType: DataType,
@@ -220,13 +202,13 @@ object GenerateUnsafeProjection extends CodeGenerator[Seq[Expression], UnsafePro
           $arrayWriter.setOffsetAndSize($index, $tmpCursor, $bufferHolder.cursor - $tmpCursor);
         """
 
-      case a @ ArrayType(at, _) =>
+      case a @ ArrayType(et, _) =>
         s"""
           final int $tmpCursor = $bufferHolder.cursor;
           ${writeArrayToBuffer(ctx, element, et, bufferHolder)}
           $arrayWriter.setOffsetAndSize($index, $tmpCursor, $bufferHolder.cursor - $tmpCursor);
           $arrayWriter.setOffset($index);
-          ${writeArrayToBuffer(ctx, element, at, bufferHolder)}
+          ${writeArrayToBuffer(ctx, element, et, bufferHolder)}
         """
 
       case m @ MapType(kt, vt, _) =>
@@ -265,7 +247,7 @@ object GenerateUnsafeProjection extends CodeGenerator[Seq[Expression], UnsafePro
   }
 
   // TODO: if the nullability of value element is correct, we can use it to save null check.
-  private[sql] def writeMapToBuffer(
+  private def writeMapToBuffer(
       ctx: CodegenContext,
       input: String,
       keyType: DataType,
