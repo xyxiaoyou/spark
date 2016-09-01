@@ -56,6 +56,11 @@ object SQLConf {
 
   }
 
+  val WAREHOUSE_PATH = SQLConfigBuilder("spark.sql.warehouse.dir")
+    .doc("The default location for managed databases and tables.")
+    .stringConf
+    .createWithDefault("file:${system:user.dir}/spark-warehouse")
+
   val OPTIMIZER_MAX_ITERATIONS = SQLConfigBuilder("spark.sql.optimizer.maxIterations")
     .internal()
     .doc("The max number of iterations the optimizer and analyzer runs.")
