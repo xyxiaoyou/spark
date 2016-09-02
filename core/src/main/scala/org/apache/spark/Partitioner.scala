@@ -109,6 +109,12 @@ object Partitioner {
 class HashPartitioner(partitions: Int) extends Partitioner {
   require(partitions >= 0, s"Number of partitions ($partitions) cannot be negative.")
 
+  require(buckets >= 0, s"Number of buckets ($buckets) cannot be negative.")
+
+  def this(partitions: Int) {
+    this(partitions, 0)
+  }
+
   def numPartitions: Int = partitions
 
   def getPartition(key: Any): Int = key match {
