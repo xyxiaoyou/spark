@@ -140,10 +140,17 @@ private[joins] class UnsafeHashedRelation(
   // re-used in get()/getValue()
   var resultRow = new UnsafeRow(numFields)
 
+  private var mapLoc = initMapLoc()
+
+  private def initMapLoc(): BytesToBytesMap#Location = {
+    val map = binaryMap
+    new map.Location
+  }
+
   override def get(key: InternalRow): Iterator[InternalRow] = {
     val unsafeKey = key.asInstanceOf[UnsafeRow]
     val map = binaryMap  // avoid the compiler error
-    val loc = new map.Location  // this could be allocated in stack
+    val loc = mapLoc
     binaryMap.safeLookup(unsafeKey.getBaseObject, unsafeKey.getBaseOffset,
       unsafeKey.getSizeInBytes, loc, unsafeKey.hashCode())
     if (loc.isDefined) {

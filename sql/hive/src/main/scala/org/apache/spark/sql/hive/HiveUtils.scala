@@ -303,9 +303,9 @@ private[spark] object HiveUtils extends Logging {
       if (builtinHiveVersion != hiveMetastoreVersion) {
         throw new IllegalArgumentException(
           "Builtin jars can only be used when hive execution version == hive metastore version. " +
-            s"Execution: $builtinHiveVersion != Metastore: $hiveMetastoreVersion. " +
-            s"Specify a valid path to the correct hive jars using ${HIVE_METASTORE_JARS.key} " +
-            s"or change ${HIVE_METASTORE_VERSION.key} to $builtinHiveVersion.")
+            s"Execution: $hiveExecutionVersion != Metastore: $hiveMetastoreVersion. " +
+            "Specify a vaild path to the correct hive jars using $HIVE_METASTORE_JARS " +
+            s"or change ${HIVE_METASTORE_VERSION.key} to $hiveExecutionVersion.")
       }
 
       // We recursively find all jars in the class loader chain,
