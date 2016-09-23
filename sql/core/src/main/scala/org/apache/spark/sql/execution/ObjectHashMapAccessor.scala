@@ -370,7 +370,7 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
 
   private def genNullCode(colVar: String, nullIndex: Int): String = {
     if (nullIndex > 0) {
-      s"((($colVar >> $nullIndex) & 1L) == 1L)"
+      s"(($colVar & (1L << $nullIndex)) != 0L)"
     } else if (nullIndex == 0) {
       s"(($colVar & 1L) == 1L)"
     } else if (nullIndex == NULL_NON_PRIM) {
@@ -380,7 +380,7 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
 
   private def genNotNullCode(colVar: String, nullIndex: Int): String = {
     if (nullIndex > 0) {
-      s"((($colVar >> $nullIndex) & 1L) == 0L)"
+      s"(($colVar & (1L << $nullIndex)) == 0L)"
     } else if (nullIndex == 0) {
       s"(($colVar & 1L) == 0L)"
     } else if (nullIndex == NULL_NON_PRIM) {
