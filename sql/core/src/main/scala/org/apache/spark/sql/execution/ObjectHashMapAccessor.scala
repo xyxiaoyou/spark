@@ -18,7 +18,6 @@ package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.types._
-import org.apache.spark.unsafe.hash.Murmur3_x86_32
 
 /**
  * Provides helper methods for generated code to use ObjectHashSet with a
@@ -72,7 +71,7 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
   val schema = keySchema ++ valueSchema
   val valueIndex = keySchema.length
 
-  private[this] val murmurClass = classOf[Murmur3_x86_32].getName
+  private[this] val hashingClass = classOf[HashingUtil].getName
   private[this] val nullsMaskPrefix = "nullsMask"
   /**
    * Indicator value for "nullIndex" of a non-primitive nullable that can be
@@ -168,25 +167,58 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
    * correspond to the key columns in this class.
    */
   def generateHashCode(keyVars: Seq[ExprCode], hashVar: String,
-      k1: String = ctx.freshName("k1")): String = classVars.zip(keyVars).map {
-    case ((BooleanType, _, _, _), colVar) =>
-      addHashInt(s"${colVar.value} ? 1 : 0", k1, hashVar, colVar.isNull)
-    case ((ByteType | ShortType | IntegerType | DateType, _, _, _), colVar) =>
-      addHashInt(colVar.value, k1, hashVar, colVar.isNull)
-    case ((LongType | TimestampType, _, _, _), colVar) =>
-      addHashLong(colVar.value, k1, hashVar, colVar.isNull)
-    case ((FloatType, _, _, _), colVar) =>
-      addHashInt(s"Float.floatToIntBits(${colVar.value})", k1, hashVar,
-        colVar.isNull)
-    case ((DoubleType, _, _, _), colVar) =>
-      addHashLong(s"Double.doubleToLongBits(${colVar.value})", k1, hashVar,
-        colVar.isNull)
-    case ((d: DecimalType, _, _, _), colVar) =>
-      addHashInt(s"${colVar.value}.fastHashCode()", k1, hashVar, colVar.isNull)
-    case (_, colVar) =>
-      addHashInt(s"${colVar.value}.hashCode()", k1, hashVar, colVar.isNull)
-  }.mkString(s"int $hashVar = 42; int $k1;\n", "",
-    s"$hashVar = $murmurClass.fmix($hashVar, ${keyVars.length});")
+      k1: String = ctx.freshName("k1")): String = {
+    if (keyVars.length == 1) {
+      // optimize for single column to use fast mixing
+      val ev = keyVars.head
+      val colVar = ev.value
+      val nullVar = ev.isNull
+      classVars(0)._1 match {
+        case BooleanType =>
+          hashSingleInt(s"($colVar) ? 1 : 0", nullVar, hashVar)
+        case ByteType | ShortType | IntegerType | DateType =>
+          hashSingleInt(colVar, nullVar, hashVar)
+        case LongType | TimestampType =>
+          hashSingleLong(colVar, nullVar, hashVar)
+        case FloatType =>
+          hashSingleInt(s"Float.floatToIntBits($colVar)", nullVar, hashVar)
+        case DoubleType =>
+          hashSingleLong(s"Double.doubleToLongBits($colVar)", nullVar, hashVar)
+        // special case of single column UTF8String that already uses
+        // murmur hash so no need to further apply mixing on top of it
+        case StringType =>
+          if (nullVar.isEmpty || nullVar == "false") {
+            s"final int $hashVar = $colVar.hashCode();\n"
+          } else {
+            s"final int $hashVar = ($nullVar) ? -1 : $colVar.hashCode();\n"
+          }
+        case d: DecimalType =>
+          hashSingleInt(s"$colVar.fastHashCode()", nullVar, hashVar)
+        case _ =>
+          hashSingleInt(s"$colVar.hashCode()", nullVar, hashVar)
+      }
+    } else {
+      classVars.zip(keyVars).map {
+        case ((BooleanType, _, _, _), ev) =>
+          addHashInt(s"${ev.value} ? 1 : 0", ev.isNull, k1, hashVar)
+        case ((ByteType | ShortType | IntegerType | DateType, _, _, _), ev) =>
+          addHashInt(ev.value, ev.isNull, k1, hashVar)
+        case ((LongType | TimestampType, _, _, _), ev) =>
+          addHashLong(ev.value, ev.isNull, k1, hashVar)
+        case ((FloatType, _, _, _), ev) =>
+          addHashInt(s"Float.floatToIntBits(${ev.value})", ev.isNull,
+            k1, hashVar)
+        case ((DoubleType, _, _, _), ev) =>
+          addHashLong(s"Double.doubleToLongBits(${ev.value})", ev.isNull,
+            k1, hashVar)
+        case ((d: DecimalType, _, _, _), ev) =>
+          addHashInt(s"${ev.value}.fastHashCode()", ev.isNull, k1, hashVar)
+        case (_, ev) =>
+          addHashInt(s"${ev.value}.hashCode()", ev.isNull, k1, hashVar)
+      }.mkString(s"int $hashVar = 42; int $k1;\n", "",
+        s"$hashVar = $hashingClass.finalMix($hashVar, ${keyVars.length});")
+    }
+  }
 
   /**
    * Generate code to compare equality of a given object (objVar) against
@@ -388,37 +420,64 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
     } else "true"
   }
 
-  private def addHashInt(hashExpr: String, k1Var: String, h1Var: String,
-      nullCode: String): String = {
-    if (nullCode.isEmpty || nullCode == "false") {
-      s"""
-        $k1Var = $murmurClass.mixK1($hashExpr);
-        $h1Var = $murmurClass.mixH1($h1Var, $k1Var);
-      """
+  private def hashSingleInt(colVar: String, nullVar: String,
+      hashVar: String): String = {
+    if (nullVar.isEmpty || nullVar == "false") {
+      s"final int $hashVar = $hashingClass.hashInt($colVar);\n"
     } else {
-      s"""
-        $k1Var = $murmurClass.mixK1(($nullCode) ? -1
-          : ($hashExpr));
-        $h1Var = $murmurClass.mixH1($h1Var, $k1Var);
-      """
+      s"final int $hashVar = ($nullVar) ? -1 : $hashingClass.hashInt($colVar);\n"
     }
   }
 
-  private def addHashLong(hashExpr: String,
-      k1Var: String, h1Var: String, nullCode: String): String = {
+  private def hashSingleLong(colVar: String, nullVar: String,
+      hashVar: String): String = {
     val longVar = ctx.freshName("longVar")
-    if (nullCode.isEmpty || nullCode == "false") {
+    if (nullVar.isEmpty || nullVar == "false") {
       s"""
-        final long $longVar = $hashExpr;
-        $k1Var = $murmurClass.mixK1((int)($longVar ^ ($longVar >>> 32)));
-        $h1Var = $murmurClass.mixH1($h1Var, $k1Var);
+        final long $longVar = $colVar;
+        final int $hashVar = $hashingClass.hashInt(
+          ($longVar ^ ($longVar >>> 32)));
       """
     } else {
       s"""
         final long $longVar;
-        $k1Var = $murmurClass.mixK1(($nullCode) ? -1
+        final int $hashVar = ($nullVar) ? -1 : $hashingClass.hashInt(
+          (int)(($longVar = ($colVar)) ^ ($longVar >>> 32)));
+      """
+    }
+  }
+
+  private def addHashInt(hashExpr: String, nullVar: String,
+      k1Var: String, h1Var: String): String = {
+    if (nullVar.isEmpty || nullVar == "false") {
+      s"""
+        $k1Var = $hashingClass.mixK1($hashExpr);
+        $h1Var = $hashingClass.mixH1($h1Var, $k1Var);
+      """
+    } else {
+      s"""
+        $k1Var = $hashingClass.mixK1(($nullVar) ? -1
+          : ($hashExpr));
+        $h1Var = $hashingClass.mixH1($h1Var, $k1Var);
+      """
+    }
+  }
+
+  private def addHashLong(hashExpr: String, nullVar: String,
+      k1Var: String, h1Var: String): String = {
+    val longVar = ctx.freshName("longVar")
+    if (nullVar.isEmpty || nullVar == "false") {
+      s"""
+        final long $longVar = $hashExpr;
+        $k1Var = $hashingClass.mixK1((int)($longVar ^ ($longVar >>> 32)));
+        $h1Var = $hashingClass.mixH1($h1Var, $k1Var);
+      """
+    } else {
+      s"""
+        final long $longVar;
+        $k1Var = $hashingClass.mixK1(($nullVar) ? -1
           : (int)(($longVar = ($hashExpr)) ^ ($longVar >>> 32)));
-        $h1Var = $murmurClass.mixH1($h1Var, $k1Var);
+        $h1Var = $hashingClass.mixH1($h1Var, $k1Var);
       """
     }
   }

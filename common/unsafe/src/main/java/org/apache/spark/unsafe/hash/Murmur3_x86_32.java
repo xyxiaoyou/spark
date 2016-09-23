@@ -99,14 +99,14 @@ public final class Murmur3_x86_32 {
     return fmix(h1, 8);
   }
 
-  public static int mixK1(int k1) {
+  private static int mixK1(int k1) {
     k1 *= C1;
     k1 = Integer.rotateLeft(k1, 15);
     k1 *= C2;
     return k1;
   }
 
-  public static int mixH1(int h1, int k1) {
+  private static int mixH1(int h1, int k1) {
     h1 ^= k1;
     h1 = Integer.rotateLeft(h1, 13);
     h1 = h1 * 5 + 0xe6546b64;
@@ -114,7 +114,7 @@ public final class Murmur3_x86_32 {
   }
 
   // Finalization mix - force all bits of a hash block to avalanche
-  public static int fmix(int h1, int length) {
+  private static int fmix(int h1, int length) {
     h1 ^= length;
     h1 ^= h1 >>> 16;
     h1 *= 0x85ebca6b;

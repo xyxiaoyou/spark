@@ -315,7 +315,7 @@ case class HashAggregateExec(
   private var hashMapTerm: String = _
   private var sorterTerm: String = _
 
-  // the names of generated classes for optimized map
+  // utility to generate class for optimized map, and hash map access methods
   @transient
   private var keyBufferAccessor: ObjectHashMapAccessor = _
 
