@@ -54,6 +54,10 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
   private long offset;
   private int numBytes;
 
+  // this flag can be set but never unset
+  private boolean isAscii;
+  private transient int hash;
+
   public Object getBaseObject() { return base; }
   public long getBaseOffset() { return offset; }
 
@@ -152,6 +156,7 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
    * @param b The first byte of a code point
    */
   private static int numBytesForFirstByte(final byte b) {
+    if (b >= 0) return 1;
     final int offset = (b & 0xFF) - 192;
     return (offset >= 0) ? bytesOfCodePointInUTF8[offset] : 1;
   }
@@ -167,10 +172,14 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
    * Returns the number of code points in it.
    */
   public int numChars() {
+    if (isAscii) return numBytes;
+    final long endOffset = offset + numBytes;
     int len = 0;
-    for (int i = 0; i < numBytes; i += numBytesForFirstByte(getByte(i))) {
-      len += 1;
+    for (long offset = this.offset; offset < endOffset;
+         offset += numBytesForFirstByte(Platform.getByte(base, offset))) {
+      len++;
     }
+    if (len == numBytes) isAscii = true;
     return len;
   }
 
@@ -297,7 +306,7 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
   /**
    * Returns the byte at position `i`.
    */
-  private byte getByte(int i) {
+  public byte getByte(int i) {
     return Platform.getByte(base, offset + i);
   }
 
@@ -857,6 +866,12 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
     }
   }
 
+  public boolean equals(final UTF8String o) {
+    final int numBytes = this.numBytes;
+    return o != null && numBytes == o.numBytes && ByteArrayMethods.arrayEquals(
+        base, offset, o.base, o.offset, numBytes);
+  }
+
   /**
    * Levenshtein distance is a metric for measuring the distance of two strings. The distance is
    * defined by the minimum number of single-character edits (i.e. insertions, deletions or
@@ -923,7 +938,10 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
 
   @Override
   public int hashCode() {
-    return Murmur3_x86_32.hashUnsafeBytes(base, offset, numBytes, 42);
+    final int h = this.hash;
+    if (h != 0) return h;
+    return (this.hash = Murmur3_x86_32.hashUnsafeBytes(
+        base, offset, numBytes, 42));
   }
 
   /**

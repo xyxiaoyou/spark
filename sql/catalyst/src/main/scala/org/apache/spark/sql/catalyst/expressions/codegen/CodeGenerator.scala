@@ -246,6 +246,15 @@ class CodegenContext {
     }
   }
 
+  private val addedClasses =
+    new mutable.HashMap[Seq[(DataType, Boolean)], String]
+
+  def getClass(types: Seq[(DataType, Boolean)]): Option[String] =
+    addedClasses.get(types)
+
+  def addClass(types: Seq[(DataType, Boolean)], name: String): Unit =
+    addedClasses.put(types, name)
+
   /**
    * Returns the specialized code to access a value from `inputRow` at `ordinal`.
    */

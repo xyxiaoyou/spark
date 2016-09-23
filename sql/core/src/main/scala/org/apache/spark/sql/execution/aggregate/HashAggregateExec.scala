@@ -165,6 +165,8 @@ case class HashAggregateExec(
   protected override def doProduce(ctx: CodegenContext): String = {
     if (groupingExpressions.isEmpty) {
       doProduceWithoutKeys(ctx)
+    } else if (HashAggregateExec.useOptimizedMap) {
+      doProduceWithKeysOptimized(ctx)
     } else {
       doProduceWithKeys(ctx)
     }
@@ -173,6 +175,8 @@ case class HashAggregateExec(
   override def doConsume(ctx: CodegenContext, input: Seq[ExprCode], row: ExprCode): String = {
     if (groupingExpressions.isEmpty) {
       doConsumeWithoutKeys(ctx, input)
+    } else if (HashAggregateExec.useOptimizedMap) {
+      doConsumeWithKeysOptimized(ctx, input)
     } else {
       doConsumeWithKeys(ctx, input)
     }
@@ -311,6 +315,10 @@ case class HashAggregateExec(
   private var hashMapTerm: String = _
   private var sorterTerm: String = _
 
+  // the names of generated classes for optimized map
+  @transient
+  private var keyBufferAccessor: ObjectHashMapAccessor = _
+
   /**
    * This is called by generated Java class, should be public.
    */
@@ -376,8 +384,8 @@ case class HashAggregateExec(
         subexpressionEliminationEnabled)
       val joinedRow = new JoinedRow()
 
-      var currentKey: UnsafeRow = null
-      var currentRow: UnsafeRow = null
+      var currentKey: UnsafeRow = _
+      var currentRow: UnsafeRow = _
       var nextKey: UnsafeRow = if (sortedIter.next()) {
         sortedIter.getKey
       } else {
@@ -417,6 +425,60 @@ case class HashAggregateExec(
       override def close(): Unit = {
         sortedIter.close()
       }
+    }
+  }
+
+  /**
+   * Generate the code for output.
+   */
+  private def generateResultCodeOptimized(
+      ctx: CodegenContext, keyBufferVars: Seq[ExprCode],
+      bufferIndex: Int): String = {
+    if (modes.contains(Final) || modes.contains(Complete)) {
+      // generate output extracting from ExprCodes
+      ctx.INPUT_ROW = null
+      ctx.currentVars = keyBufferVars.take(bufferIndex)
+      val keyVars = groupingExpressions.zipWithIndex.map {
+        case (e, i) => BoundReference(i, e.dataType, e.nullable).genCode(ctx)
+      }
+      val evaluateKeyVars = evaluateVariables(keyVars)
+      ctx.currentVars = keyBufferVars.drop(bufferIndex)
+      val bufferVars = aggregateBufferAttributesForGroup.zipWithIndex.map {
+        case (e, i) => BoundReference(i, e.dataType, e.nullable).genCode(ctx)
+      }
+      val evaluateBufferVars = evaluateVariables(bufferVars)
+      // evaluate the aggregation result
+      ctx.currentVars = bufferVars
+      val aggResults = declFunctions.map(_.evaluateExpression).map { e =>
+        BindReferences.bindReference(e, aggregateBufferAttributesForGroup)
+            .genCode(ctx)
+      }
+      val evaluateAggResults = evaluateVariables(aggResults)
+      // generate the final result
+      ctx.currentVars = keyVars ++ aggResults
+      val inputAttrs = groupingAttributes ++ aggregateAttributes
+      val resultVars = resultExpressions.map { e =>
+        BindReferences.bindReference(e, inputAttrs).genCode(ctx)
+      }
+      s"""
+       $evaluateKeyVars
+       $evaluateBufferVars
+       $evaluateAggResults
+       ${consume(ctx, resultVars)}
+       """
+
+    } else if (modes.contains(Partial) || modes.contains(PartialMerge)) {
+      // Combined grouping keys and aggregate values in buffer
+      consume(ctx, keyBufferVars)
+
+    } else {
+      // generate result based on grouping key
+      ctx.INPUT_ROW = null
+      ctx.currentVars = keyBufferVars.take(bufferIndex)
+      val eval = resultExpressions.map { e =>
+        BindReferences.bindReference(e, groupingAttributes).genCode(ctx)
+      }
+      consume(ctx, eval)
     }
   }
 
@@ -507,6 +569,70 @@ case class HashAggregateExec(
 
     isSupported  && isNotByteArrayDecimalType &&
       schemaLength <= sqlContext.conf.vectorizedAggregateMapMaxColumns
+  }
+
+  private def doProduceWithKeysOptimized(ctx: CodegenContext): String = {
+    val initAgg = ctx.freshName("initAgg")
+    ctx.addMutableState("boolean", initAgg, s"$initAgg = false;")
+
+    // Create a name for iterator from HashMap
+    val iterTerm = ctx.freshName("mapIter")
+    val iter = ctx.freshName("mapIter")
+    val iterObj = ctx.freshName("iterObj")
+    val iterClass = "scala.collection.Iterator"
+    ctx.addMutableState(iterClass, iterTerm, "")
+
+    val doAgg = ctx.freshName("doAggregateWithKeys")
+    // generate variable name for hash map for use here and in consume
+    hashMapTerm = ctx.freshName("hashMap")
+    val hashSetClassName = classOf[ObjectHashSet].getName
+    ctx.addNewFunction(doAgg,
+    s"""
+        private void $doAgg() throws java.io.IOException {
+          final $hashSetClassName $hashMapTerm = new $hashSetClassName(128);
+          ${child.asInstanceOf[CodegenSupport].produce(ctx, this)}
+
+          $iterTerm = $hashMapTerm.iterator();
+        }
+       """)
+
+    // generate code for output
+    val keyBufferClass = keyBufferAccessor.getClassName
+    val keyBufferTerm = ctx.freshName("keyBuffer")
+    val (initCode, keyBufferVars) = keyBufferAccessor.getColumnVars(
+      keyBufferTerm, onlyKeyVars = false, onlyValueVars = false)
+    val outputCode = generateResultCodeOptimized(ctx,
+      keyBufferVars, keyBufferAccessor.valueIndex)
+    val numOutput = metricTerm(ctx, "numOutputRows")
+
+    // The child could change `copyResult` to true, but we had already
+    // consumed all the rows, so `copyResult` should be reset to `false`.
+    ctx.copyResult = false
+
+    val aggTime = metricTerm(ctx, "aggTime")
+    val beforeAgg = ctx.freshName("beforeAgg")
+
+    s"""
+      if (!$initAgg) {
+        $initAgg = true;
+        long $beforeAgg = System.nanoTime();
+        $doAgg();
+        $aggTime.add((System.nanoTime() - $beforeAgg) / 1000000);
+      }
+
+      // output the result
+      Object $iterObj;
+      final $iterClass $iter = $iterTerm;
+      while (($iterObj = $iter.next()) != null) {
+        $numOutput.add(1);
+        final $keyBufferClass $keyBufferTerm = ($keyBufferClass)$iterObj;
+        $initCode
+
+        $outputCode
+
+        if (shouldStop()) return;
+      }
+    """
   }
 
   private def doProduceWithKeys(ctx: CodegenContext): String = {
@@ -621,6 +747,83 @@ case class HashAggregateExec(
        $hashMapTerm.free();
      }
      """
+  }
+
+  private def doConsumeWithKeysOptimized(ctx: CodegenContext,
+      input: Seq[ExprCode]): String = {
+    val keyBufferTerm = ctx.freshName("keyBuffer")
+
+    // create grouping key
+    ctx.currentVars = input
+    ctx.INPUT_ROW = null
+    val keyVars = ctx.generateExpressions(groupingExpressions.map(
+      e => BindReferences.bindReference[Expression](e, child.output)))
+
+    // only have DeclarativeAggregate
+    val updateExpr = aggregateExpressions.flatMap { e =>
+      e.mode match {
+        case Partial | Complete =>
+          e.aggregateFunction.asInstanceOf[DeclarativeAggregate]
+              .updateExpressions
+        case PartialMerge | Final =>
+          e.aggregateFunction.asInstanceOf[DeclarativeAggregate]
+              .mergeExpressions
+      }
+    }
+
+    // generate class for key, buffer and hash code evaluation of key columns
+    val hashTerm = ctx.freshName("hash")
+    val inputAttr = aggregateBufferAttributesForGroup ++ child.output
+    val initVars = ctx.generateExpressions(declFunctions.flatMap(
+      _.initialValuesForGroup.map(BindReferences.bindReference(_, inputAttr))))
+    val initCode = evaluateVariables(initVars)
+    keyBufferAccessor = new ObjectHashMapAccessor(ctx, "KeyBuffer",
+      groupingKeySchema, bufferSchema)
+    val (bufferInit, bufferVars) = keyBufferAccessor.getColumnVars(
+      keyBufferTerm, onlyKeyVars = false, onlyValueVars = true)
+    val bufferEval = evaluateVariables(bufferVars)
+
+    ctx.currentVars = bufferVars ++ input
+    val boundUpdateExpr = updateExpr.map(BindReferences.bindReference(_,
+      inputAttr))
+    val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(
+      boundUpdateExpr)
+    val effectiveCodes = subExprs.codes.mkString("\n")
+    val updateEvals = ctx.withSubExprEliminationExprs(subExprs.states) {
+      boundUpdateExpr.map(_.genCode(ctx))
+    }
+
+    // We first generate code to probe and update the hash map. If the probe is
+    // successful, the corresponding buffer will hold buffer class object.
+    // We try to do hash map based in-memory aggregation first. If there is not
+    // enough memory (the hash map will return null for new key), we spill the
+    // hash map to disk to free memory, then continue to do in-memory
+    // aggregation and spilling until all the rows had been processed.
+    // Finally, sort the spilled aggregate buffers by key, and merge
+    // them together for same key.
+    s"""
+       |// evaluate the hash code of the lookup key
+       |${keyBufferAccessor.generateHashCode(keyVars, hashTerm)}
+       |
+       |${keyBufferAccessor.generateMapGetOrInsert(hashMapTerm, hashTerm,
+            keyBufferTerm, keyVars, initVars, initCode)}
+       |
+       |// -- Update the buffer with new aggregate results --
+       |
+       |// initialization for buffer fields
+       |$bufferInit
+       |$bufferEval
+       |
+       |// common sub-expressions
+       |$effectiveCodes
+       |
+       |// evaluate aggregate functions
+       |${evaluateVariables(updateEvals)}
+       |
+       |// update generated class object fields
+       |${keyBufferAccessor.generateUpdate(keyBufferTerm, bufferVars,
+            updateEvals, forKey = false, doCopy = false, forInit = false)}
+    """.stripMargin
   }
 
   private def doConsumeWithKeys(ctx: CodegenContext, input: Seq[ExprCode]): String = {
@@ -814,7 +1017,10 @@ case class HashAggregateExec(
 }
 
 object HashAggregateExec {
+  var useOptimizedMap = false
+
   def supportsAggregate(aggregateBufferAttributes: Seq[Attribute]): Boolean = {
+    if (useOptimizedMap) return true
     val aggregationBufferSchema = StructType.fromAttributes(aggregateBufferAttributes)
     UnsafeFixedWidthAggregationMap.supportsAggregationBufferSchema(aggregationBufferSchema)
   }
