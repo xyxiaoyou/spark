@@ -127,7 +127,7 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
       (dataType, javaType, ExprCode("", nullVar, varName), nullIndex)
     }
     if (!exists) {
-      // trim trailed &&
+      // trim trailing "\n&& "
       equalsCode.setLength(equalsCode.length - 4)
       val classCode =
         s"""
@@ -185,7 +185,8 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
       addHashInt(s"${colVar.value}.fastHashCode()", k1, hashVar, colVar.isNull)
     case (_, colVar) =>
       addHashInt(s"${colVar.value}.hashCode()", k1, hashVar, colVar.isNull)
-  }.mkString(s"int $hashVar = 42; int $k1;\n", "", "")
+  }.mkString(s"int $hashVar = 42; int $k1;\n", "",
+    s"$hashVar = $murmurClass.fmix($hashVar, ${keyVars.length});")
 
   /**
    * Generate code to compare equality of a given object (objVar) against
@@ -354,8 +355,8 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
   private def genVarAssignCode(objVar: String, resultVar: ExprCode,
       varName: String, dataType: DataType,
       doCopy: Boolean): String = dataType match {
-    // if doCopy is true, then create a copy of some non-primitive that are
-    // fetched as references to UnsafeRow (and can change under the hood)
+    // if doCopy is true, then create a copy of some non-primitives that are
+    // just hold reference to UnsafeRow bytes (and can change under the hood)
     case StringType if doCopy =>
       s"$objVar.$varName = UTF8String.fromBytes(${resultVar.value}.getBytes());"
     case (_: ArrayType | _: MapType | _: StructType) if doCopy =>
