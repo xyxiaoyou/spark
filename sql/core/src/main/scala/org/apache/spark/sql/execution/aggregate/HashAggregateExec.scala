@@ -316,8 +316,9 @@ case class HashAggregateExec(
   private var sorterTerm: String = _
 
   // utility to generate class for optimized map, and hash map access methods
-  @transient
-  private var keyBufferAccessor: ObjectHashMapAccessor = _
+  @transient private var keyBufferAccessor: ObjectHashMapAccessor = _
+  private var maskTerm: String = _
+  private var mapDataTerm: String = _
 
   /**
    * This is called by generated Java class, should be public.
@@ -579,17 +580,33 @@ case class HashAggregateExec(
     val iterTerm = ctx.freshName("mapIter")
     val iter = ctx.freshName("mapIter")
     val iterObj = ctx.freshName("iterObj")
-    val iterClass = "scala.collection.Iterator"
+    val iterClass = "java.util.Iterator"
     ctx.addMutableState(iterClass, iterTerm, "")
 
     val doAgg = ctx.freshName("doAggregateWithKeys")
+
+    // generate the map accessor to generate key/value class
+    // and get map access methods
+    keyBufferAccessor = new ObjectHashMapAccessor(ctx, "KeyBuffer",
+      groupingKeySchema, bufferSchema)
+
     // generate variable name for hash map for use here and in consume
     hashMapTerm = ctx.freshName("hashMap")
-    val hashSetClassName = classOf[ObjectHashSet].getName
+    val hashSetClassName = classOf[ObjectHashSet[_]].getName
+    ctx.addMutableState(hashSetClassName, hashMapTerm, "")
+
+    // generate local variables for HashMap mask and data array
+    val entryClass = keyBufferAccessor.getClassName
+    maskTerm = ctx.freshName("hashMapMask")
+    mapDataTerm = ctx.freshName("mapData")
+
     ctx.addNewFunction(doAgg,
     s"""
         private void $doAgg() throws java.io.IOException {
-          final $hashSetClassName $hashMapTerm = new $hashSetClassName(128);
+          $hashMapTerm = new $hashSetClassName(128, 0.6,
+             scala.reflect.ClassTag$$.MODULE$$.apply($entryClass.class));
+          int $maskTerm = $hashMapTerm.mask();
+          $entryClass[] $mapDataTerm = ($entryClass[])$hashMapTerm.data();
           ${child.asInstanceOf[CodegenSupport].produce(ctx, this)}
 
           $iterTerm = $hashMapTerm.iterator();
@@ -597,7 +614,6 @@ case class HashAggregateExec(
        """)
 
     // generate code for output
-    val keyBufferClass = keyBufferAccessor.getClassName
     val keyBufferTerm = ctx.freshName("keyBuffer")
     val (initCode, keyBufferVars) = keyBufferAccessor.getColumnVars(
       keyBufferTerm, onlyKeyVars = false, onlyValueVars = false)
@@ -625,7 +641,7 @@ case class HashAggregateExec(
       final $iterClass $iter = $iterTerm;
       while (($iterObj = $iter.next()) != null) {
         $numOutput.add(1);
-        final $keyBufferClass $keyBufferTerm = ($keyBufferClass)$iterObj;
+        final $entryClass $keyBufferTerm = ($entryClass)$iterObj;
         $initCode
 
         $outputCode
@@ -777,8 +793,6 @@ case class HashAggregateExec(
     val initVars = ctx.generateExpressions(declFunctions.flatMap(
       _.initialValuesForGroup.map(BindReferences.bindReference(_, inputAttr))))
     val initCode = evaluateVariables(initVars)
-    keyBufferAccessor = new ObjectHashMapAccessor(ctx, "KeyBuffer",
-      groupingKeySchema, bufferSchema)
     val (bufferInit, bufferVars) = keyBufferAccessor.getColumnVars(
       keyBufferTerm, onlyKeyVars = false, onlyValueVars = true)
     val bufferEval = evaluateVariables(bufferVars)
@@ -805,8 +819,8 @@ case class HashAggregateExec(
        |// evaluate the hash code of the lookup key
        |${keyBufferAccessor.generateHashCode(keyVars, hashTerm)}
        |
-       |${keyBufferAccessor.generateMapGetOrInsert(hashMapTerm, hashTerm,
-            keyBufferTerm, keyVars, initVars, initCode)}
+       |${keyBufferAccessor.generateMapGetOrInsert(hashMapTerm, maskTerm,
+          mapDataTerm, hashTerm, keyBufferTerm, keyVars, initVars, initCode)}
        |
        |// -- Update the buffer with new aggregate results --
        |
@@ -822,7 +836,7 @@ case class HashAggregateExec(
        |
        |// update generated class object fields
        |${keyBufferAccessor.generateUpdate(keyBufferTerm, bufferVars,
-            updateEvals, forKey = false, doCopy = false, forInit = false)}
+          updateEvals, forKey = false, doCopy = false, forInit = false)}
     """.stripMargin
   }
 

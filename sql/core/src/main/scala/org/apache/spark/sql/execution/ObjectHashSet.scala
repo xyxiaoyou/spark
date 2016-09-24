@@ -34,7 +34,9 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.execution.ObjectHashSet._
+import java.util.{Iterator => JIterator}
+
+import scala.reflect.ClassTag
 
 /**
  * A fast hash set implementation for non-null data. This hash set supports
@@ -47,10 +49,11 @@ import org.apache.spark.sql.execution.ObjectHashSet._
  * used as a more efficient map that uses a single object for both key and
  * value parts (and user's key object can be coded to be so).
  * <p>
- * Adapted from Spark's OpenHashSet implementation.
+ * Adapted from Spark's OpenHashSet implementation. It deliberately uses
+ * java interfaces to keep byte code overheads minimal.
  */
-final class ObjectHashSet(initialCapacity: Int, loadFactor: Double)
-    extends Iterable[AnyRef] with Serializable {
+final class ObjectHashSet[T <: AnyRef : ClassTag](initialCapacity: Int,
+    loadFactor: Double) extends java.lang.Iterable[T] with Serializable {
 
   def this(initialCapacity: Int) = this(initialCapacity, 0.6)
 
@@ -59,22 +62,25 @@ final class ObjectHashSet(initialCapacity: Int, loadFactor: Double)
   private[this] var _growThreshold = (loadFactor * _capacity).toInt
 
   private[this] var _mask = _capacity - 1
-  private[this] var _data: Array[AnyRef] = new Array[AnyRef](_capacity)
+  private[this] var _data: Array[T] = newArray(_capacity)
 
-  override def size: Int = _size
+  private[this] def newArray(capacity: Int): Array[T] =
+    implicitly[ClassTag[T]].newArray(capacity)
+
+  def size: Int = _size
 
   def mask: Int = _mask
 
-  def getData: Array[AnyRef] = _data
+  def data: Array[T] = _data
 
-  override def iterator: Iterator[AnyRef] = new Iterator[AnyRef] {
+  override def iterator: JIterator[T] = new JIterator[T] {
 
     private[this] var _pos = -1
 
     override def hasNext: Boolean =
       throw new UnsupportedOperationException("not expected to be invoked")
 
-    override def next(): AnyRef = {
+    override def next(): T = {
       val data = _data
       val size = data.length
       var pos = _pos + 1
@@ -87,16 +93,19 @@ final class ObjectHashSet(initialCapacity: Int, loadFactor: Double)
         pos += 1
       }
       _pos = size
-      null
+      null.asInstanceOf[T]
     }
   }
 
-  def handleNewInsert(): Unit = {
+  def handleNewInsert(): Boolean = {
     _size += 1
-    // check and trigger a rehash
-    if (_size <= _growThreshold) return
-
-    rehash()
+    // check and trigger a rehash if load factor exceeded
+    if (_size <= _growThreshold) {
+      false
+    } else {
+      rehash()
+      true
+    }
   }
 
   /**
@@ -107,10 +116,8 @@ final class ObjectHashSet(initialCapacity: Int, loadFactor: Double)
     val capacity = _capacity
     val data = _data
 
-    val newCapacity = capacity << 1
-    require(newCapacity > 0 && newCapacity <= MAX_CAPACITY,
-      s"Can't contain more than ${(loadFactor * MAX_CAPACITY).toInt} elements")
-    val newData = new Array[AnyRef](newCapacity)
+    val newCapacity = checkCapacity(capacity << 1)
+    val newData = newArray(newCapacity)
     val newMask = newCapacity - 1
 
     var oldPos = 0
@@ -142,12 +149,18 @@ final class ObjectHashSet(initialCapacity: Int, loadFactor: Double)
     _growThreshold = (loadFactor * newCapacity).toInt
   }
 
+  private def checkCapacity(capacity: Int): Int = {
+    val maxCapacity = 1 << 30
+    if (capacity > 0 && capacity <= maxCapacity) {
+      capacity
+    } else {
+      throw new IllegalStateException(
+        s"Can't contain more than ${(loadFactor * maxCapacity).toInt} elements")
+    }
+  }
+
   private def nextPowerOf2(n: Int): Int = {
     val highBit = Integer.highestOneBit(n)
-    if (highBit == n) n else highBit << 1
+    checkCapacity(if (highBit == n) n else highBit << 1)
   }
-}
-
-private[spark] object ObjectHashSet {
-  val MAX_CAPACITY = 1 << 30
 }

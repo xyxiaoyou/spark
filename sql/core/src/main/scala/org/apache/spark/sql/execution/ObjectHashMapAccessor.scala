@@ -79,7 +79,20 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
    */
   private[this] val NULL_NON_PRIM = -2
 
-  private[this] val (className, classVars, numNullVars) = {
+  private[this] val (className, classVars, numNullVars, singleColumn) =
+    initClass()
+
+  private[this] def initClass(): (String, IndexedSeq[(DataType, String,
+      ExprCode, Int)], Int, Boolean) = {
+    // for single column hash table, if the field is a string then avoid
+    // the wrapper class creation and use the string itself as key
+    if (schema.length == 1 && !schema.head.nullable &&
+        schema.head.dataType == StringType) {
+      val javaType = "UTF8String"
+      return (javaType, IndexedSeq((StringType, javaType, ExprCode(
+        "", "false", ""), -1)), 0, true)
+    }
+
     // check for existing class with same schema
     val types = schema.map(f => f.dataType -> f.nullable)
     val (newClassName, exists) = ctx.getClass(types) match {
@@ -156,7 +169,7 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
       ctx.addClass(types, newClassName)
     }
 
-    (newClassName, newClassVars, numNulls + 1)
+    (newClassName, newClassVars, numNulls + 1, false)
   }
 
   /** get the generated class name */
@@ -184,16 +197,12 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
           hashSingleInt(s"Float.floatToIntBits($colVar)", nullVar, hashVar)
         case DoubleType =>
           hashSingleLong(s"Double.doubleToLongBits($colVar)", nullVar, hashVar)
-        // special case of single column UTF8String that already uses
-        // murmur hash so no need to further apply mixing on top of it
-        case StringType =>
-          if (nullVar.isEmpty || nullVar == "false") {
-            s"final int $hashVar = $colVar.hashCode();\n"
-          } else {
-            s"final int $hashVar = ($nullVar) ? -1 : $colVar.hashCode();\n"
-          }
         case d: DecimalType =>
           hashSingleInt(s"$colVar.fastHashCode()", nullVar, hashVar)
+        // single column types that use murmur hash already,
+        // so no need to further apply mixing on top of it
+        case StringType | _: ArrayType | _: StructType =>
+          hashCodeSingleInt(s"$colVar.hashCode()", nullVar, hashVar)
         case _ =>
           hashSingleInt(s"$colVar.hashCode()", nullVar, hashVar)
       }
@@ -252,11 +261,19 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
     else if (onlyValueVars) classVars.drop(valueIndex) else classVars
 
     val columnVars = vars.map { case (dataType, javaType, ev, nullIndex) =>
-      val localVar = ctx.freshName("localField")
-      ExprCode(s"final $javaType $localVar = $objVar.${ev.value};",
-        nullLocalVars.get(ev.isNull).map(genNullCode(_, nullIndex))
-            .getOrElse(if (nullIndex == NULL_NON_PRIM) s"($localVar == null)"
-            else "false"), localVar)
+      val (localVar, localDeclaration) = {
+        if (ev.value.isEmpty) {
+          // single column string case
+          (objVar, "")
+        } else {
+          val lv = ctx.freshName("localField")
+          (lv, s"final $javaType $lv = $objVar.${ev.value};")
+        }
+      }
+      ExprCode(localDeclaration, nullLocalVars.get(ev.isNull).map(
+        genNullCode(_, nullIndex)).getOrElse(
+        if (nullIndex == NULL_NON_PRIM) s"($localVar == null)"
+        else "false"), localVar)
     }
     (declarations.toString(), columnVars)
   }
@@ -264,9 +281,9 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
   /**
    * Generate code to lookup the map or insert a new key, value if not found.
    */
-  def generateMapGetOrInsert(mapVar: String, hashVar: String, objVar: String,
-      keyVars: Seq[ExprCode], valueInitVars: Seq[ExprCode],
-      valueInitCode: String): String = {
+  def generateMapGetOrInsert(mapVar: String, maskVar: String, dataVar: String,
+      hashVar: String, objVar: String, keyVars: Seq[ExprCode],
+      valueInitVars: Seq[ExprCode], valueInitCode: String): String = {
     val valueInit = generateUpdate(objVar, Seq.empty, valueInitVars,
       forKey = false, doCopy = false)
     s"""
@@ -277,31 +294,33 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
       //   on memory writes/reads vs just register reads)
       $className $objVar;
       {
-        final int mask = $mapVar.mask();
-        final Object[] data = $mapVar.getData();
-        int pos = $hashVar & mask;
+        int pos = $hashVar & $maskVar;
         int delta = 1;
         while (true) {
-          final Object key = data[pos];
+          final $className key = $dataVar[pos];
           if (key != null) {
-            $objVar = ($className)key;
+            $objVar = key;
             if (${generateEquals(keyVars, objVar)}) {
               break;
             } else {
               // quadratic probing with values increase by 1, 2, 3, ...
-              pos = (pos + delta) & mask;
+              pos = (pos + delta) & $maskVar;
               delta++;
             }
           } else {
-            $objVar = new $className($hashVar);
+            ${if (singleColumn) "" else s"$objVar = new $className($hashVar);"}
             // initialize the value fields to defaults
             $valueInitCode
             $valueInit
             // initialize the key fields
             ${generateUpdate(objVar, Seq.empty, keyVars, forKey = true)}
             // insert into the map and rehash if required
-            data[pos] = $objVar;
-            $mapVar.handleNewInsert();
+            $dataVar[pos] = $objVar;
+            if ($mapVar.handleNewInsert()) {
+              // map was rehashed
+              $maskVar = $mapVar.mask();
+              $dataVar = ($className[])$mapVar.data();
+            }
 
             break;
           }
@@ -385,16 +404,23 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
   }
 
   private def genVarAssignCode(objVar: String, resultVar: ExprCode,
-      varName: String, dataType: DataType,
-      doCopy: Boolean): String = dataType match {
+      varName: String, dataType: DataType, doCopy: Boolean): String = {
+    // check for single column string case
+    val colVar = if (varName.isEmpty) objVar
+    else s"$objVar.$varName"
+    genVarAssignCode(colVar, resultVar, dataType, doCopy)
+  }
+
+  private def genVarAssignCode(colVar: String, resultVar: ExprCode,
+      dataType: DataType, doCopy: Boolean): String = dataType match {
     // if doCopy is true, then create a copy of some non-primitives that are
     // just hold reference to UnsafeRow bytes (and can change under the hood)
     case StringType if doCopy =>
-      s"$objVar.$varName = UTF8String.fromBytes(${resultVar.value}.getBytes());"
+      s"$colVar = UTF8String.fromBytes(${resultVar.value}.getBytes());"
     case (_: ArrayType | _: MapType | _: StructType) if doCopy =>
-      s"$objVar.$varName = ${resultVar.value}.copy();"
+      s"$colVar = ${resultVar.value}.copy();"
     case _ =>
-      s"$objVar.$varName = ${resultVar.value};"
+      s"$colVar = ${resultVar.value};"
   }
 
   private def genNullBitMask(nullIdx: Int): String =
@@ -426,6 +452,15 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
       s"final int $hashVar = $hashingClass.hashInt($colVar);\n"
     } else {
       s"final int $hashVar = ($nullVar) ? -1 : $hashingClass.hashInt($colVar);\n"
+    }
+  }
+
+  private def hashCodeSingleInt(hashExpr: String, nullVar: String,
+      hashVar: String): String = {
+    if (nullVar.isEmpty || nullVar == "false") {
+      s"final int $hashVar = $hashExpr;\n"
+    } else {
+      s"final int $hashVar = ($nullVar) ? -1 : $hashExpr;\n"
     }
   }
 
@@ -485,19 +520,22 @@ final class ObjectHashMapAccessor(ctx: CodegenContext, classPrefix: String,
   private def genEqualsCode(thisColVar: String, thisNullVar: String,
       otherVar: String, otherColVar: String, otherNullVar: String,
       nullIndex: Int, isPrimitive: Boolean): String = {
+    // check for single column string case
+    val otherColRef = if (otherColVar.isEmpty) otherVar
+    else s"$otherVar.$otherColVar"
     if (nullIndex == -1) {
-      if (isPrimitive) s"($thisColVar == $otherVar.$otherColVar)"
-      else s"$thisColVar.equals($otherVar.$otherColVar)"
+      if (isPrimitive) s"($thisColVar == $otherColRef)"
+      else s"$thisColVar.equals($otherColRef)"
     } else if (nullIndex == NULL_NON_PRIM) {
-      s"""($thisColVar != null ? $thisColVar.equals($otherVar.$otherColVar)
-           : ($otherVar.$otherColVar) == null)
+      s"""($thisColVar != null ? $thisColVar.equals($otherColRef)
+           : ($otherColRef) == null)
       """
     } else {
       val notNullCode = genNotNullCode(thisNullVar, nullIndex)
-      val otherNotNullCode = genNotNullCode(s"$otherVar.$otherNullVar",
+      val otherNotNullCode = genNotNullCode(s"$otherColRef",
         nullIndex)
       s"""($notNullCode ? ($otherNotNullCode ? ($thisColVar ==
-           $otherVar.$otherColVar) : false) : !$otherNotNullCode)
+           $otherColRef) : false) : !$otherNotNullCode)
       """
     }
   }

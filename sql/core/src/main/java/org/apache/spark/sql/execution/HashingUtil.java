@@ -17,7 +17,7 @@
 package org.apache.spark.sql.execution;
 
 /**
- * Helper class with static methods used by {@link ObjectHashMapAccessor}.
+ * Helper class with static methods used by <code>ObjectHashMapAccessor</code>.
  */
 public abstract class HashingUtil {
 
@@ -27,9 +27,9 @@ public abstract class HashingUtil {
   // Simpler mixing for integer values that are reasonably hashed.
   // Constant taken from h2 tests (CalculateHashConstant.java).
   public static int hashInt(int v) {
-    v = ((v >> 16) ^ v) * 0x45d9f3b;
-    v = ((v >> 16) ^ v) * 0x45d9f3b;
-    v = (v >> 16) ^ v;
+    v = ((v >>> 16) ^ v) * 0x45d9f3b;
+    v = ((v >>> 16) ^ v) * 0x45d9f3b;
+    v = (v >>> 16) ^ v;
     return v;
   }
 
