@@ -54,9 +54,8 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
   private long offset;
   private int numBytes;
 
-  // this flag can be set but never unset
-  private boolean isAscii;
   private transient int hash;
+  private transient boolean isAscii;
 
   public Object getBaseObject() { return base; }
   public long getBaseOffset() { return offset; }
