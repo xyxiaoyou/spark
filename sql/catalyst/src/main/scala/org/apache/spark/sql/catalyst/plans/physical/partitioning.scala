@@ -265,9 +265,8 @@ case class OrderlessHashPartitioning(expressions: Seq[Expression], numPartitions
  * in the same partition. Moreover while evaluating expressions if they are given in different order
  * than this partitioning then also it is considered equal.
  */
-case class OrderlessHashPartitioning(expressions: Seq[Expression], numPartitions: Int)
-    extends Expression with Partitioning with Unevaluable {
-
+case class HashPartitioning(expressions: Seq[Expression], numPartitions: Int,
+    numBuckets: Int = 0) extends Expression with Partitioning with Unevaluable {
 
   override def children: Seq[Expression] = expressions
   override def nullable: Boolean = false
@@ -291,12 +290,14 @@ case class OrderlessHashPartitioning(expressions: Seq[Expression], numPartitions
   }
 
   override def compatibleWith(other: Partitioning): Boolean = other match {
-    case p: HashPartitioning => anyOrderEquals(p)
+    case o: HashPartitioning =>
+      this.numBuckets == o.numBuckets && anyOrderEquals(o)
     case _ => false
   }
 
   override def guarantees(other: Partitioning): Boolean = other match {
-    case o: HashPartitioning => anyOrderEquals(o)
+    case o: HashPartitioning =>
+      this.numBuckets == o.numBuckets && this.anyOrderEquals(o)
     case _ => false
   }
 
