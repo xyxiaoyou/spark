@@ -115,7 +115,11 @@ private[spark] object BlockManagerId {
   val blockManagerIdCache = new ConcurrentHashMap[BlockManagerId, BlockManagerId]()
 
   def getCachedBlockManagerId(id: BlockManagerId): BlockManagerId = {
-    blockManagerIdCache.putIfAbsent(id, id)
-    blockManagerIdCache.get(id)
+    val blockId = blockManagerIdCache.get(id)
+    if (blockId != null) blockId
+    else {
+      val oldId = blockManagerIdCache.putIfAbsent(id, id)
+      if (oldId != null) oldId else id
+    }
   }
 }

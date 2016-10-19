@@ -33,7 +33,7 @@ case class SparkListenerSQLExecutionStart(
     executionId: Long,
     description: String,
     details: String,
-    physicalPlanDescription: String,
+    physicalPlanDescription: () => String,
     sparkPlanInfo: SparkPlanInfo,
     time: Long)
   extends SparkListenerEvent
@@ -378,7 +378,7 @@ private[ui] class SQLExecutionUIData(
     val executionId: Long,
     val description: String,
     val details: String,
-    val physicalPlanDescription: String,
+    val physicalPlanDescription: () => String,
     val physicalPlanGraph: SparkPlanGraph,
     val accumulatorMetrics: Map[Long, SQLPlanMetric],
     val submissionTime: Long) {

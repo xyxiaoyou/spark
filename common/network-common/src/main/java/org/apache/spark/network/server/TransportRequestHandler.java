@@ -116,7 +116,9 @@ public class TransportRequestHandler extends MessageHandler<RequestMessage> {
   private void processFetchRequest(final ChunkFetchRequest req) {
     final String client = NettyUtils.getRemoteAddress(channel);
 
-    logger.trace("Received req from {} to fetch block {}", client, req.streamChunkId);
+    if (logger.isTraceEnabled()) {
+      logger.trace("Received req from {} to fetch block {}", client, req.streamChunkId);
+    }
 
     ManagedBuffer buf;
     try {
@@ -195,7 +197,9 @@ public class TransportRequestHandler extends MessageHandler<RequestMessage> {
         @Override
         public void operationComplete(ChannelFuture future) throws Exception {
           if (future.isSuccess()) {
-            logger.trace(String.format("Sent result %s to client %s", result, remoteAddress));
+            if (logger.isTraceEnabled()) {
+              logger.trace(String.format("Sent result %s to client %s", result, remoteAddress));
+            }
           } else {
             logger.error(String.format("Error sending result %s to %s; closing connection",
               result, remoteAddress), future.cause());

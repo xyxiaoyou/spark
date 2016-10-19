@@ -21,6 +21,8 @@ import java.io.{FileOutputStream, IOException, RandomAccessFile}
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel.MapMode
 
+import scala.collection.mutable
+
 import com.google.common.io.Closeables
 
 import org.apache.spark.SparkConf
@@ -34,6 +36,8 @@ import org.apache.spark.util.io.ChunkedByteBuffer
 private[spark] class DiskStore(conf: SparkConf, diskManager: DiskBlockManager) extends Logging {
 
   private val minMemoryMapBytes = conf.getSizeAsBytes("spark.storage.memoryMapThreshold", "2m")
+
+  private val blockIds = new mutable.HashSet[BlockId]()
 
   def getSize(blockId: BlockId): Long = {
     diskManager.getFile(blockId.name).length
@@ -49,7 +53,7 @@ private[spark] class DiskStore(conf: SparkConf, diskManager: DiskBlockManager) e
       throw new IllegalStateException(s"Block $blockId is already present in the disk store")
     }
     logDebug(s"Attempting to put block $blockId")
-    val startTime = System.currentTimeMillis
+    val startTime = if (debugEnabled) System.currentTimeMillis else 0L
     val file = diskManager.getFile(blockId)
     val fileOutputStream = new FileOutputStream(file)
     var threwException: Boolean = true
@@ -65,11 +69,13 @@ private[spark] class DiskStore(conf: SparkConf, diskManager: DiskBlockManager) e
         }
       }
     }
-    val finishTime = System.currentTimeMillis
+    blockIds.synchronized {
+      blockIds.add(blockId)
+    }
     logDebug("Block %s stored as %s file on disk in %d ms".format(
       file.getName,
       Utils.bytesToString(file.length()),
-      finishTime - startTime))
+      System.currentTimeMillis - startTime))
   }
 
   def putBytes(blockId: BlockId, bytes: ChunkedByteBuffer): Unit = {
@@ -108,6 +114,11 @@ private[spark] class DiskStore(conf: SparkConf, diskManager: DiskBlockManager) e
   }
 
   def remove(blockId: BlockId): Boolean = {
+    var exists = false
+    blockIds.synchronized {
+      exists = blockIds.remove(blockId)
+    }
+    if (!exists) return false
     val file = diskManager.getFile(blockId.name)
     if (file.exists()) {
       val ret = file.delete()
@@ -121,6 +132,11 @@ private[spark] class DiskStore(conf: SparkConf, diskManager: DiskBlockManager) e
   }
 
   def contains(blockId: BlockId): Boolean = {
+    var exists = false
+    blockIds.synchronized {
+      exists = blockIds.contains(blockId)
+    }
+    if (!exists) return false
     val file = diskManager.getFile(blockId.name)
     file.exists()
   }

@@ -396,7 +396,7 @@ private[spark] class BlockManager(
    * Get locations of an array of blocks.
    */
   private def getLocationBlockIds(blockIds: Array[BlockId]): Array[Seq[BlockManagerId]] = {
-    val startTimeMs = System.currentTimeMillis
+    val startTimeMs = if (debugEnabled) System.currentTimeMillis else 0L
     val locations = master.getLocations(blockIds).toArray
     logDebug("Got multiple block location in %s".format(Utils.getUsedTimeMs(startTimeMs)))
     locations
@@ -759,7 +759,7 @@ private[spark] class BlockManager(
       tellMaster: Boolean = true,
       keepReadLock: Boolean = false): Boolean = {
     doPut(blockId, level, classTag, tellMaster = tellMaster, keepReadLock = keepReadLock) { info =>
-      val startTimeMs = System.currentTimeMillis
+      val startTimeMs = if (debugEnabled) System.currentTimeMillis else 0L
       // Since we're storing bytes, initiate the replication before storing them locally.
       // This is faster as data is already serialized and ready to send.
       val replicationFuture = if (level.replication > 1) {
@@ -860,7 +860,7 @@ private[spark] class BlockManager(
       }
     }
 
-    val startTimeMs = System.currentTimeMillis
+    val startTimeMs = if (debugEnabled) System.currentTimeMillis else 0L
     var blockWasSuccessfullyStored: Boolean = false
     val result: Option[T] = try {
       val res = putBody(putBlockInfo)
@@ -908,7 +908,7 @@ private[spark] class BlockManager(
       tellMaster: Boolean = true,
       keepReadLock: Boolean = false): Option[PartiallyUnrolledIterator[T]] = {
     doPut(blockId, level, classTag, tellMaster = tellMaster, keepReadLock = keepReadLock) { info =>
-      val startTimeMs = System.currentTimeMillis
+      val startTimeMs = if (debugEnabled) System.currentTimeMillis else 0L
       var iteratorFromFailedMemoryStorePut: Option[PartiallyUnrolledIterator[T]] = None
       // Size of the block in bytes
       var size = 0L
@@ -970,7 +970,7 @@ private[spark] class BlockManager(
         }
         logDebug("Put block %s locally took %s".format(blockId, Utils.getUsedTimeMs(startTimeMs)))
         if (level.replication > 1) {
-          val remoteStartTime = System.currentTimeMillis
+          val remoteStartTime = if (debugEnabled) System.currentTimeMillis else 0L
           val bytesToReplicate = doGetLocalBytes(blockId, info)
           try {
             replicate(blockId, bytesToReplicate, level, classTag)
@@ -1106,7 +1106,7 @@ private[spark] class BlockManager(
       useOffHeap = level.useOffHeap,
       deserialized = level.deserialized,
       replication = 1)
-    val startTime = System.currentTimeMillis
+    val startTime = if (debugEnabled) System.currentTimeMillis else 0L
     val random = new Random(blockId.hashCode)
 
     var replicationFailed = false
@@ -1183,7 +1183,7 @@ private[spark] class BlockManager(
           done = true
       }
     }
-    val timeTakeMs = (System.currentTimeMillis - startTime)
+    val timeTakeMs = if (debugEnabled) System.currentTimeMillis - startTime else 0L
     logDebug(s"Replicating $blockId of ${data.size} bytes to " +
       s"${peersReplicatedTo.size} peer(s) took $timeTakeMs ms")
     if (peersReplicatedTo.size < numPeersToReplicateTo) {
@@ -1279,7 +1279,9 @@ private[spark] class BlockManager(
   def removeRdd(rddId: Int): Int = {
     // TODO: Avoid a linear scan by creating another mapping of RDD.id to blocks.
     logInfo(s"Removing RDD $rddId")
-    val blocksToRemove = blockInfoManager.entries.flatMap(_._1.asRDDId).filter(_.rddId == rddId)
+    val blocksToRemove = blockInfoManager.collectEntries {
+      case (bid @ RDDBlockId(`rddId`, _), _) => bid
+    }
     blocksToRemove.foreach { blockId => removeBlock(blockId, tellMaster = false) }
     blocksToRemove.size
   }
@@ -1289,8 +1291,8 @@ private[spark] class BlockManager(
    */
   def removeBroadcast(broadcastId: Long, tellMaster: Boolean): Int = {
     logDebug(s"Removing broadcast $broadcastId")
-    val blocksToRemove = blockInfoManager.entries.map(_._1).collect {
-      case bid @ BroadcastBlockId(`broadcastId`, _) => bid
+    val blocksToRemove = blockInfoManager.collectEntries {
+      case (bid @ BroadcastBlockId(`broadcastId`, _), _) => bid
     }
     blocksToRemove.foreach { blockId => removeBlock(blockId, tellMaster) }
     blocksToRemove.size

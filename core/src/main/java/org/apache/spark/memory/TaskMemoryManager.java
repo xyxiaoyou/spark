@@ -383,13 +383,15 @@ public class TaskMemoryManager {
       }
       consumers.clear();
 
-      for (MemoryBlock page : pageTable) {
+      final int numPages = pageTable.length;
+      for (int index = 0; index < numPages; index++) {
+        final MemoryBlock page = pageTable[index];
         if (page != null) {
           logger.warn("leak a page: " + page + " in task " + taskAttemptId);
           memoryManager.tungstenMemoryAllocator().free(page);
+          pageTable[index] = null;
         }
       }
-      Arrays.fill(pageTable, null);
     }
 
     // release the memory that is not used by any consumer (acquired for pages in tungsten mode).

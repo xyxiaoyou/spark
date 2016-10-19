@@ -362,7 +362,7 @@ class SQLListenerSuite extends SparkFunSuite with SharedSQLContext {
     // These are largely just boilerplate unrelated to what we're trying to test.
     val df = createTestDataFrame
     val executionStart = SparkListenerSQLExecutionStart(
-      0, "", "", "", SparkPlanInfo.fromSparkPlan(df.queryExecution.executedPlan), 0)
+      0, "", "", () => "", SparkPlanInfo.fromSparkPlan(df.queryExecution.executedPlan), 0)
     val stageInfo = createStageInfo(0, 0)
     val jobStart = SparkListenerJobStart(0, 0, Seq(stageInfo), createProperties(0))
     val stageSubmitted = SparkListenerStageSubmitted(stageInfo)

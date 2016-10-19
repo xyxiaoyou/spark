@@ -44,6 +44,7 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger, AtomicReferenc
 
 import scala.collection.JavaConverters._
 import scala.collection.Map
+import scala.collection.concurrent.TrieMap
 import scala.collection.generic.Growable
 import scala.collection.mutable.HashMap
 import scala.language.implicitConversions
@@ -1390,7 +1391,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
       "Can not directly broadcast RDDs; instead, call collect() and broadcast the result.")
     val bc = env.broadcastManager.newBroadcast[T](value, isLocal)
     val callSite = getCallSite
-    logInfo("Created broadcast " + bc.id + " from " + callSite.shortForm)
+    logDebug("Created broadcast " + bc.id + " from " + callSite.shortForm)
     cleaner.foreach(_.registerBroadcastForCleanup(bc))
     bc
   }
@@ -2039,6 +2040,8 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
     dagScheduler.cancelStage(stageId)
   }
 
+  private[this] val needsCleaning = new TrieMap[Class[_], java.lang.Boolean]()
+
   /**
    * Clean a closure to make it ready to serialized and send to tasks
    * (removes unreferenced variables in $outer's, updates REPL variables)
@@ -2058,6 +2061,30 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
         ClosureCleaner.clean(f, checkSerializable)
         f
     }
+    /*
+    val fClass = f.getClass
+    needsCleaning.get(fClass) match {
+      case Some(b) => if (b.booleanValue()) {
+        ClosureCleaner.clean(f, checkSerializable)
+      }
+      case None =>
+        val doClean = try {
+          if (SparkEnv.get != null) {
+            SparkEnv.get.closureSerializer.newInstance().serialize(f: AnyRef)
+            java.lang.Boolean.FALSE
+          } else {
+            null
+          }
+        } catch {
+          case ex: Exception => java.lang.Boolean.TRUE
+        }
+        ClosureCleaner.clean(f, checkSerializable)
+        if (doClean != null) {
+          needsCleaning += fClass -> doClean
+        }
+    }
+    f
+    */
   }
 
   /**

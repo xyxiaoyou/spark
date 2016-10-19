@@ -53,17 +53,20 @@ private[memory] class ExecutionMemoryPool(
    * Map from taskAttemptId -> memory consumption in bytes
    */
   @GuardedBy("lock")
-  private val memoryForTask = new mutable.HashMap[Long, Long]()
+  private val memoryForTask = new mutable.HashMap[Long, TaskMemoryValue]()
 
   override def memoryUsed: Long = lock.synchronized {
-    memoryForTask.values.sum
+    memoryForTask.foldLeft(0L)(_ + _._2.mem)
   }
 
   /**
    * Returns the memory consumption, in bytes, for the given task.
    */
   def getMemoryUsageForTask(taskAttemptId: Long): Long = lock.synchronized {
-    memoryForTask.getOrElse(taskAttemptId, 0L)
+    memoryForTask.get(taskAttemptId) match {
+      case Some(v) => v.mem
+      case None => 0L
+    }
   }
 
   /**
@@ -100,7 +103,7 @@ private[memory] class ExecutionMemoryPool(
     // Add this task to the taskMemory map just so we can keep an accurate count of the number
     // of active tasks, to let other tasks ramp down their memory in calls to `acquireMemory`
     if (!memoryForTask.contains(taskAttemptId)) {
-      memoryForTask(taskAttemptId) = 0L
+      memoryForTask(taskAttemptId) = new TaskMemoryValue(0L)
       // This will later cause waiting tasks to wake up and check numTasks again
       lock.notifyAll()
     }
@@ -110,7 +113,7 @@ private[memory] class ExecutionMemoryPool(
     // memory to give it (we always let each task get at least 1 / (2 * numActiveTasks)).
     // TODO: simplify this to limit each task to its own slot
     while (true) {
-      val numActiveTasks = memoryForTask.keys.size
+      val numActiveTasks = memoryForTask.size
       val curMem = memoryForTask(taskAttemptId)
 
       // In every iteration of this loop, we should first try to reclaim any borrowed execution
@@ -128,18 +131,18 @@ private[memory] class ExecutionMemoryPool(
       val minMemoryPerTask = poolSize / (2 * numActiveTasks)
 
       // How much we can grant this task; keep its share within 0 <= X <= 1 / numActiveTasks
-      val maxToGrant = math.min(numBytes, math.max(0, maxMemoryPerTask - curMem))
+      val maxToGrant = math.min(numBytes, math.max(0, maxMemoryPerTask - curMem.mem))
       // Only give it as much memory as is free, which might be none if it reached 1 / numTasks
       val toGrant = math.min(maxToGrant, memoryFree)
 
       // We want to let each task get at least 1 / (2 * numActiveTasks) before blocking;
       // if we can't give it this much now, wait for other tasks to free up memory
       // (this happens if older tasks allocated lots of memory before N grew)
-      if (toGrant < numBytes && curMem + toGrant < minMemoryPerTask) {
+      if (toGrant < numBytes && curMem.mem + toGrant < minMemoryPerTask) {
         logInfo(s"TID $taskAttemptId waiting for at least 1/2N of $poolName pool to be free")
         lock.wait()
       } else {
-        memoryForTask(taskAttemptId) += toGrant
+        curMem.mem += toGrant
         return toGrant
       }
     }
@@ -150,7 +153,8 @@ private[memory] class ExecutionMemoryPool(
    * Release `numBytes` of memory acquired by the given task.
    */
   def releaseMemory(numBytes: Long, taskAttemptId: Long): Unit = lock.synchronized {
-    val curMem = memoryForTask.getOrElse(taskAttemptId, 0L)
+    val taskMemOpt = memoryForTask.get(taskAttemptId)
+    val curMem = if (taskMemOpt.isDefined) taskMemOpt.get.mem else 0L
     var memoryToFree = if (curMem < numBytes) {
       logWarning(
         s"Internal error: release called on $numBytes bytes but task only has $curMem bytes " +
@@ -159,11 +163,13 @@ private[memory] class ExecutionMemoryPool(
     } else {
       numBytes
     }
-    if (memoryForTask.contains(taskAttemptId)) {
-      memoryForTask(taskAttemptId) -= memoryToFree
-      if (memoryForTask(taskAttemptId) <= 0) {
-        memoryForTask.remove(taskAttemptId)
-      }
+    taskMemOpt match {
+      case Some(taskMem) =>
+        taskMem.mem -= memoryToFree
+        if (taskMem.mem <= 0) {
+          memoryForTask.remove(taskAttemptId)
+        }
+      case _ =>
     }
     lock.notifyAll() // Notify waiters in acquireMemory() that memory has been freed
   }
@@ -179,3 +185,5 @@ private[memory] class ExecutionMemoryPool(
   }
 
 }
+
+private[memory] final class TaskMemoryValue(var mem: Long)

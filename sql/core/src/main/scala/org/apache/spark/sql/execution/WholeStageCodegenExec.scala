@@ -17,6 +17,11 @@
 
 package org.apache.spark.sql.execution
 
+import scala.collection.mutable
+
+import com.esotericsoftware.kryo.io.{Input, Output}
+import com.ning.compress.lzf.{LZFDecoder, LZFEncoder}
+
 import org.apache.spark.{broadcast, TaskContext}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
@@ -259,6 +264,44 @@ case class InputAdapter(child: SparkPlan) extends UnaryExecNode with CodegenSupp
 
 object WholeStageCodegenExec {
   val PIPELINE_DURATION_METRIC = "duration"
+
+  def compressCode(source: CodeAndComment): (Array[Byte], Int) = {
+    val initLen = source.body.length + source.comment.foldLeft(4) {
+      case (s, (k, v)) => s + k.length + v.length + 8
+    }
+    val out = new Output(initLen, -1)
+    out.writeString(source.body)
+    out.writeVarInt(source.comment.size, true)
+    for ((k, v) <- source.comment) {
+      out.writeString(k)
+      out.writeString(v)
+    }
+    // LZF gives best balance between speed and compression ratio
+    // (LZ4 JNI is slightly faster but LZF compression is higher)
+    // Also fastest way to compress/decompress is to avoid streaming
+    // rather call on raw bytes after having written all data.
+    val len = out.position()
+    val compressedCode = LZFEncoder.encode(out.getBuffer, 0, len)
+    out.close()
+    (compressedCode, len)
+  }
+
+  def decompressCode(data: Array[Byte], len: Int): CodeAndComment = {
+    val decompressedCode = new Array[Byte](len)
+    LZFDecoder.decode(data, decompressedCode)
+    val in = new Input(decompressedCode)
+    val body = in.readString()
+    var commentSize = in.readVarInt(true)
+    val comment = new mutable.HashMap[String, String]()
+    while (commentSize > 0) {
+      val k = in.readString()
+      val v = in.readString()
+      comment.put(k, v)
+      commentSize -= 1
+    }
+    in.close()
+    new CodeAndComment(body, comment)
+  }
 }
 
 /**
@@ -358,11 +401,18 @@ case class WholeStageCodegenExec(child: SparkPlan) extends UnaryExecNode with Co
 
     val durationMs = longMetric("pipelineTime")
 
+    // code can be large so compress and ship
+    val compressionOutput = WholeStageCodegenExec.compressCode(cleanedSource)
+    val compressedCode = compressionOutput._1
+    val decompressedLen = compressionOutput._2
+
     val rdds = child.asInstanceOf[CodegenSupport].inputRDDs()
     assert(rdds.size <= 2, "Up to two input RDDs can be supported")
     if (rdds.length == 1) {
       rdds.head.mapPartitionsWithIndex { (index, iter) =>
-        val clazz = CodeGenerator.compile(cleanedSource)
+        val source = WholeStageCodegenExec.decompressCode(compressedCode,
+          decompressedLen)
+        val clazz = CodeGenerator.compile(source)
         val buffer = clazz.generate(references).asInstanceOf[BufferedRowIterator]
         buffer.init(index, Array(iter))
         new Iterator[InternalRow] {
@@ -378,7 +428,9 @@ case class WholeStageCodegenExec(child: SparkPlan) extends UnaryExecNode with Co
       // Right now, we support up to two input RDDs.
       rdds.head.zipPartitions(rdds(1)) { (leftIter, rightIter) =>
         val partitionIndex = TaskContext.getPartitionId()
-        val clazz = CodeGenerator.compile(cleanedSource)
+        val source = WholeStageCodegenExec.decompressCode(compressedCode,
+          decompressedLen)
+        val clazz = CodeGenerator.compile(source)
         val buffer = clazz.generate(references).asInstanceOf[BufferedRowIterator]
         buffer.init(partitionIndex, Array(leftIter, rightIter))
         new Iterator[InternalRow] {

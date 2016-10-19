@@ -136,8 +136,11 @@ public class TransportClient implements Closeable {
       final int chunkIndex,
       final ChunkReceivedCallback callback) {
     final String serverAddr = NettyUtils.getRemoteAddress(channel);
-    final long startTime = System.currentTimeMillis();
-    logger.debug("Sending fetch chunk request {} to {}", chunkIndex, serverAddr);
+    final boolean isTraceEnabled = logger.isTraceEnabled();
+    final long startTime = isTraceEnabled ? System.currentTimeMillis() : 0L;
+    if (logger.isDebugEnabled()) {
+      logger.debug("Sending fetch chunk request {} to {}", chunkIndex, serverAddr);
+    }
 
     final StreamChunkId streamChunkId = new StreamChunkId(streamId, chunkIndex);
     handler.addFetchRequest(streamChunkId, callback);
@@ -147,9 +150,11 @@ public class TransportClient implements Closeable {
         @Override
         public void operationComplete(ChannelFuture future) throws Exception {
           if (future.isSuccess()) {
-            long timeTaken = System.currentTimeMillis() - startTime;
-            logger.trace("Sending request {} to {} took {} ms", streamChunkId, serverAddr,
-              timeTaken);
+            if (isTraceEnabled) {
+              long timeTaken = System.currentTimeMillis() - startTime;
+              logger.trace("Sending request {} to {} took {} ms", streamChunkId, serverAddr,
+                  timeTaken);
+            }
           } else {
             String errorMsg = String.format("Failed to send request %s to %s: %s", streamChunkId,
               serverAddr, future.cause());
@@ -174,8 +179,11 @@ public class TransportClient implements Closeable {
    */
   public void stream(final String streamId, final StreamCallback callback) {
     final String serverAddr = NettyUtils.getRemoteAddress(channel);
-    final long startTime = System.currentTimeMillis();
-    logger.debug("Sending stream request for {} to {}", streamId, serverAddr);
+    final boolean isTraceEnabled = logger.isTraceEnabled();
+    final long startTime = isTraceEnabled ? System.currentTimeMillis() : 0L;
+    if (logger.isDebugEnabled()) {
+      logger.debug("Sending stream request for {} to {}", streamId, serverAddr);
+    }
 
     // Need to synchronize here so that the callback is added to the queue and the RPC is
     // written to the socket atomically, so that callbacks are called in the right order
@@ -187,9 +195,11 @@ public class TransportClient implements Closeable {
           @Override
           public void operationComplete(ChannelFuture future) throws Exception {
             if (future.isSuccess()) {
-              long timeTaken = System.currentTimeMillis() - startTime;
-              logger.trace("Sending request for {} to {} took {} ms", streamId, serverAddr,
-                timeTaken);
+              if (isTraceEnabled) {
+                long timeTaken = System.currentTimeMillis() - startTime;
+                logger.trace("Sending request for {} to {} took {} ms", streamId, serverAddr,
+                    timeTaken);
+              }
             } else {
               String errorMsg = String.format("Failed to send request for %s to %s: %s", streamId,
                 serverAddr, future.cause());
@@ -216,8 +226,11 @@ public class TransportClient implements Closeable {
    */
   public long sendRpc(ByteBuffer message, final RpcResponseCallback callback) {
     final String serverAddr = NettyUtils.getRemoteAddress(channel);
-    final long startTime = System.currentTimeMillis();
-    logger.trace("Sending RPC to {}", serverAddr);
+    final boolean isTraceEnabled = logger.isTraceEnabled();
+    final long startTime = isTraceEnabled ? System.currentTimeMillis() : 0L;
+    if (isTraceEnabled) {
+      logger.trace("Sending RPC to {}", serverAddr);
+    }
 
     final long requestId = Math.abs(UUID.randomUUID().getLeastSignificantBits());
     handler.addRpcRequest(requestId, callback);
@@ -227,8 +240,10 @@ public class TransportClient implements Closeable {
         @Override
         public void operationComplete(ChannelFuture future) throws Exception {
           if (future.isSuccess()) {
-            long timeTaken = System.currentTimeMillis() - startTime;
-            logger.trace("Sending request {} to {} took {} ms", requestId, serverAddr, timeTaken);
+            if (isTraceEnabled) {
+              long timeTaken = System.currentTimeMillis() - startTime;
+              logger.trace("Sending request {} to {} took {} ms", requestId, serverAddr, timeTaken);
+            }
           } else {
             String errorMsg = String.format("Failed to send RPC %s to %s: %s", requestId,
               serverAddr, future.cause());

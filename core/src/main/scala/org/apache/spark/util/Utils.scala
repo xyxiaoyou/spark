@@ -1400,14 +1400,14 @@ private[spark] object Utils extends Logging {
     }
   }
 
+  // A regular expression to match classes of the internal Spark API's
+  // that we want to skip when finding the call site of a method.
+  val SPARK_CORE_CLASS_REGEX =
+  """^org\.apache\.spark(\.api\.java)?(\.util)?(\.rdd)?(\.broadcast)?\.[A-Z]""".r
+  val SPARK_SQL_CLASS_REGEX = """^org\.apache\.spark\.sql.*""".r
+  val SCALA_CORE_CLASS_PREFIX = "scala"
   /** Default filtering function for finding call sites using `getCallSite`. */
   private def sparkInternalExclusionFunction(className: String): Boolean = {
-    // A regular expression to match classes of the internal Spark API's
-    // that we want to skip when finding the call site of a method.
-    val SPARK_CORE_CLASS_REGEX =
-      """^org\.apache\.spark(\.api\.java)?(\.util)?(\.rdd)?(\.broadcast)?\.[A-Z]""".r
-    val SPARK_SQL_CLASS_REGEX = """^org\.apache\.spark\.sql.*""".r
-    val SCALA_CORE_CLASS_PREFIX = "scala"
     val isSparkClass = SPARK_CORE_CLASS_REGEX.findFirstIn(className).isDefined ||
       SPARK_SQL_CLASS_REGEX.findFirstIn(className).isDefined
     val isScalaClass = className.startsWith(SCALA_CORE_CLASS_PREFIX)
@@ -1431,7 +1431,8 @@ private[spark] object Utils extends Logging {
     var firstUserFile = "<unknown>"
     var firstUserLine = 0
     var insideSpark = true
-    var callStack = new ArrayBuffer[String]() :+ "<unknown>"
+    val callStackDepth = System.getProperty("spark.callstack.depth", "20").toInt
+    var callStack = if (callStackDepth <= 1) null else new ArrayBuffer[String]() :+ "<unknown>"
 
     Thread.currentThread.getStackTrace().foreach { ste: StackTraceElement =>
       // When running under some profilers, the current stack trace might contain some bogus
@@ -1447,20 +1448,21 @@ private[spark] object Utils extends Logging {
             } else {
               ste.getMethodName
             }
-            callStack(0) = ste.toString // Put last Spark method on top of the stack trace.
+            if (callStack != null) {
+              callStack(0) = ste.toString // Put last Spark method on top of the stack trace.
+            }
           } else {
             firstUserLine = ste.getLineNumber
             firstUserFile = ste.getFileName
-            callStack += ste.toString
+            if (callStack != null) callStack += ste.toString
             insideSpark = false
           }
         } else {
-          callStack += ste.toString
+          if (callStack != null) callStack += ste.toString
         }
       }
     }
 
-    val callStackDepth = System.getProperty("spark.callstack.depth", "20").toInt
     val shortForm =
       if (firstUserFile == "HiveSessionImpl.java") {
         // To be more user friendly, show a nicer string for queries submitted from the JDBC
@@ -1469,7 +1471,8 @@ private[spark] object Utils extends Logging {
       } else {
         s"$lastSparkMethod at $firstUserFile:$firstUserLine"
       }
-    val longForm = callStack.take(callStackDepth).mkString("\n")
+    val longForm = if (callStack == null) shortForm
+    else callStack.take(callStackDepth).mkString("\n")
 
     CallSite(shortForm, longForm)
   }

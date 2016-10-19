@@ -400,6 +400,16 @@ private[storage] class BlockInfoManager extends Logging {
   }
 
   /**
+   * Apply a partial function over a snapshot of all blocks' metadata.
+   * Note that the individual entries in this iterator are mutable and thus
+   * may reflect blocks that are deleted while the iterator is being traversed.
+   */
+  def collectEntries[T](
+      pf: PartialFunction[(BlockId, BlockInfo), T]): Iterable[T] = synchronized {
+    infos.collect[T, Iterable[T]](pf)
+  }
+
+  /**
    * Removes the given block and releases the write lock on it.
    *
    * This can only be called while holding a write lock on the given block.

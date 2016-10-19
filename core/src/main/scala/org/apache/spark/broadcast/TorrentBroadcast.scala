@@ -24,6 +24,9 @@ import scala.collection.JavaConverters._
 import scala.reflect.ClassTag
 import scala.util.Random
 
+import com.esotericsoftware.kryo.Kryo
+import com.esotericsoftware.kryo.io.{Input, Output}
+
 import org.apache.spark._
 import org.apache.spark.internal.Logging
 import org.apache.spark.io.CompressionCodec
@@ -80,10 +83,10 @@ private[spark] class TorrentBroadcast[T: ClassTag](obj: T, id: Long)
   }
   setConf(SparkEnv.get.conf)
 
-  private val broadcastId = BroadcastBlockId(id)
+  @transient private lazy val broadcastId = BroadcastBlockId(id)
 
   /** Total number of blocks this broadcast variable contains. */
-  private val numBlocks: Int = writeBlocks(obj)
+  private var numBlocks: Int = writeBlocks(obj)
 
   override protected def getValue() = {
     _value
@@ -182,9 +185,9 @@ private[spark] class TorrentBroadcast[T: ClassTag](obj: T, id: Long)
 
         case None =>
           logInfo("Started reading broadcast variable " + id)
-          val startTimeMs = System.currentTimeMillis()
+          val startTimeMs = if (debugEnabled) System.currentTimeMillis() else 0L
           val blocks = readBlocks().flatMap(_.getChunks())
-          logInfo("Reading broadcast variable " + id + " took" + Utils.getUsedTimeMs(startTimeMs))
+          logDebug("Reading broadcast variable " + id + " took" + Utils.getUsedTimeMs(startTimeMs))
 
           val obj = TorrentBroadcast.unBlockifyObject[T](
             blocks, SparkEnv.get.serializer, compressionCodec)

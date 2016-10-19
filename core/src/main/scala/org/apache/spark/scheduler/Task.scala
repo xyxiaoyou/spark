@@ -27,6 +27,7 @@ import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
 import com.esotericsoftware.kryo.io.{Input, Output}
 
 import org.apache.spark._
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.executor.TaskMetrics
 import org.apache.spark.memory.{MemoryMode, TaskMemoryManager}
 import org.apache.spark.metrics.MetricsSystem
@@ -55,6 +56,8 @@ private[spark] abstract class Task[T](
     private var _stageAttemptId: Int,
     private var _partitionId: Int,
     // The default value is only used in tests.
+    protected var taskBinaryBytes: Option[Array[Byte]] = None,
+    protected var taskBinary: Option[Broadcast[Array[Byte]]] = None,
     private var _metrics: TaskMetrics = TaskMetrics.registered,
     @transient var localProperties: Properties = new Properties) extends Serializable
     with KryoSerializable {
@@ -202,6 +205,15 @@ private[spark] abstract class Task[T](
     output.writeVarInt(_partitionId, true)
     output.writeLong(epoch)
     output.writeLong(_executorDeserializeTime)
+    taskBinaryBytes match {
+      case Some(taskBytes) =>
+        val numBytes = taskBytes.length
+        output.writeVarInt(numBytes, true)
+        output.writeBytes(taskBytes, 0, numBytes)
+      case None =>
+        output.writeVarInt(0, true)
+        kryo.writeClassAndObject(output, taskBinary.get)
+    }
     _metrics.write(kryo, output)
   }
 
@@ -211,6 +223,15 @@ private[spark] abstract class Task[T](
     _partitionId = input.readVarInt(true)
     epoch = input.readLong()
     _executorDeserializeTime = input.readLong()
+    val numBytes = input.readVarInt(true)
+    if (numBytes > 0) {
+      taskBinaryBytes = Some(input.readBytes(numBytes))
+      taskBinary = None
+    } else {
+      taskBinaryBytes = None
+      taskBinary = Some(kryo.readClassAndObject(input)
+          .asInstanceOf[Broadcast[Array[Byte]]])
+    }
     _metrics = new TaskMetrics
     _metrics.read(kryo, input)
   }

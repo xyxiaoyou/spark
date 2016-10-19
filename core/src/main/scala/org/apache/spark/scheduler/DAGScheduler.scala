@@ -994,21 +994,32 @@ class DAGScheduler(
     // task gets a different copy of the RDD. This provides stronger isolation between tasks that
     // might modify state of objects referenced in their closures. This is necessary in Hadoop
     // where the JobConf/Configuration object is not thread-safe.
-    var taskBinary: Broadcast[Array[Byte]] = null
+    var taskBinary: Option[Broadcast[Array[Byte]]] = None
+    var taskRawBinary: Option[Array[Byte]] = None
     try {
       // For ShuffleMapTask, serialize and broadcast (rdd, shuffleDep).
       // For ResultTask, serialize and broadcast (rdd, func).
       val bytes = stage.taskBinaryBytes
       val taskBinaryBytes: Array[Byte] = if (bytes != null) bytes else stage match {
         case stage: ShuffleMapStage =>
-          JavaUtils.bufferToArray(
+          val taskBytes = JavaUtils.bufferToArray(
             closureSerializer.serialize((stage.rdd, stage.shuffleDep): AnyRef))
+          stage.taskBinaryBytes = taskBytes
+          taskBytes
         case stage: ResultStage =>
-          JavaUtils.bufferToArray(closureSerializer.serialize((stage.rdd, stage.func): AnyRef))
+          val taskBytes = JavaUtils.bufferToArray(
+            closureSerializer.serialize((stage.rdd, stage.func): AnyRef))
+          stage.taskBinaryBytes = taskBytes
+          taskBytes
       }
       if (bytes == null) stage.taskBinaryBytes = bytes
 
-      taskBinary = sc.broadcast(taskBinaryBytes)
+      // use direct byte shipping for small size or if small number of partitions
+      if (taskBinaryBytes.length <= 32 * 1024 || stage.rdd.getNumPartitions <= 10) {
+        taskRawBinary = Some(taskBinaryBytes)
+      } else {
+        taskBinary = Some(sc.broadcast(taskBinaryBytes))
+      }
     } catch {
       // In the case of a failure during serialization, abort the stage.
       case e: NotSerializableException =>
@@ -1029,7 +1040,7 @@ class DAGScheduler(
           partitionsToCompute.map { id =>
             val locs = taskIdToLocations(id)
             val part = stage.rdd.partitions(id)
-            new ShuffleMapTask(stage.id, stage.latestInfo.attemptId,
+            new ShuffleMapTask(stage.id, stage.latestInfo.attemptId, taskRawBinary,
               taskBinary, part, locs, stage.latestInfo.taskMetrics, properties)
           }
 
@@ -1039,7 +1050,7 @@ class DAGScheduler(
             val p: Int = stage.partitions(id)
             val part = stage.rdd.partitions(p)
             val locs = taskIdToLocations(id)
-            new ResultTask(stage.id, stage.latestInfo.attemptId,
+            new ResultTask(stage.id, stage.latestInfo.attemptId, taskRawBinary,
               taskBinary, part, locs, id, properties, stage.latestInfo.taskMetrics)
           }
       }
@@ -1395,7 +1406,7 @@ class DAGScheduler(
    * Marks a stage as finished and removes it from the list of running stages.
    */
   private def markStageAsFinished(stage: Stage, errorMessage: Option[String] = None): Unit = {
-    val serviceTime = stage.latestInfo.submissionTime match {
+    val serviceTime = if (!log.isInfoEnabled) 0L else stage.latestInfo.submissionTime match {
       case Some(t) => "%.03f".format((clock.getTimeMillis() - t) / 1000.0)
       case _ => "Unknown"
     }

@@ -72,7 +72,8 @@ case class ShuffleIndexBlockId(shuffleId: Int, mapId: Int, reduceId: Int) extend
 
 @DeveloperApi
 case class BroadcastBlockId(broadcastId: Long, field: String = "") extends BlockId {
-  override def name: String = "broadcast_" + broadcastId + (if (field == "") "" else "_" + field)
+  @transient override lazy val name: String =
+    "broadcast_" + broadcastId + (if (field == "") "" else "_" + field)
 }
 
 @DeveloperApi

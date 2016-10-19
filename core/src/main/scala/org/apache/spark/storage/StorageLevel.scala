@@ -19,6 +19,7 @@ package org.apache.spark.storage
 
 import java.io.{Externalizable, IOException, ObjectInput, ObjectOutput}
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReferenceArray
 
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.memory.MemoryMode
@@ -31,7 +32,7 @@ import org.apache.spark.util.Utils
  * ExternalBlockStore, whether to keep the data in memory in a serialized format, and whether
  * to replicate the RDD partitions on multiple nodes.
  *
- * The [[org.apache.spark.storage.StorageLevel$]] singleton object contains some static constants
+ * The [[org.apache.spark.storage.StorageLevel]] singleton object contains some static constants
  * for commonly useful storage levels. To create your own storage level object, use the
  * factory method of the singleton object (`StorageLevel(...)`).
  */
@@ -195,8 +196,8 @@ object StorageLevel {
       useOffHeap: Boolean,
       deserialized: Boolean,
       replication: Int): StorageLevel = {
-    getCachedStorageLevel(
-      new StorageLevel(useDisk, useMemory, useOffHeap, deserialized, replication))
+    getCached(
+      flags(useDisk, useMemory, useOffHeap, deserialized), replication)
   }
 
   /**
@@ -209,7 +210,8 @@ object StorageLevel {
       useMemory: Boolean,
       deserialized: Boolean,
       replication: Int = 1): StorageLevel = {
-    getCachedStorageLevel(new StorageLevel(useDisk, useMemory, false, deserialized, replication))
+    getCached(
+      flags(useDisk, useMemory, useOffHeap = false, deserialized), replication)
   }
 
   /**
@@ -218,7 +220,7 @@ object StorageLevel {
    */
   @DeveloperApi
   def apply(flags: Int, replication: Int): StorageLevel = {
-    getCachedStorageLevel(new StorageLevel(flags, replication))
+    getCached(flags, replication)
   }
 
   /**
@@ -232,10 +234,41 @@ object StorageLevel {
     getCachedStorageLevel(obj)
   }
 
-  private[spark] val storageLevelCache = new ConcurrentHashMap[StorageLevel, StorageLevel]()
+  private def flags(useDisk: Boolean, useMemory: Boolean, useOffHeap: Boolean,
+      deserialized: Boolean): Int = {
+    var flag = 0
+    if (useDisk) flag |= 8
+    if (useMemory) flag |= 4
+    if (useOffHeap) flag |= 2
+    if (deserialized) flag |= 1
+    flag
+  }
 
-  private[spark] def getCachedStorageLevel(level: StorageLevel): StorageLevel = {
-    storageLevelCache.putIfAbsent(level, level)
-    storageLevelCache.get(level)
+  private val MAX_REPLICATION_CACHE1 = (1 << 4) - 1
+  private[spark] val storageLevelCache1 = new AtomicReferenceArray[StorageLevel](256)
+  private[spark] val storageLevelCache2 = new ConcurrentHashMap[StorageLevel, StorageLevel]()
+
+  private[spark] def getCachedStorageLevel(level: StorageLevel): StorageLevel =
+    getCached(level.toInt, level._replication)
+
+  private[spark] def getCached(flags: Int, replication: Int): StorageLevel = {
+    if (replication < MAX_REPLICATION_CACHE1) {
+      val index = flags | (replication << 4)
+      val cachedLevel = storageLevelCache1.get(index)
+      if (cachedLevel != null) cachedLevel
+      else {
+        val level = new StorageLevel(flags, replication)
+        storageLevelCache1.compareAndSet(index, null, level)
+        storageLevelCache1.get(index)
+      }
+    } else {
+      val level = new StorageLevel(flags, replication)
+      val cachedLevel = storageLevelCache2.get(level)
+      if (cachedLevel != null) cachedLevel
+      else {
+        storageLevelCache2.putIfAbsent(level, level)
+        storageLevelCache2.get(level)
+      }
+    }
   }
 }

@@ -48,7 +48,7 @@ class TaskInfo(
    * accumulable to be updated multiple times in a single task or for two accumulables with the
    * same name but different IDs to exist in a task.
    */
-  val accumulables = ListBuffer[AccumulableInfo]()
+  val accumulables = new ListBuffer[AccumulableInfo]()
 
   /**
    * The time when the task has completed successfully (including the time to remotely fetch
@@ -95,7 +95,7 @@ class TaskInfo(
     }
   }
 
-  def id: String = s"$index.$attemptNumber"
+  lazy val id: String = s"$index.$attemptNumber"
 
   def duration: Long = {
     if (!finished) {
