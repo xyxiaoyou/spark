@@ -17,19 +17,21 @@
 
 package org.apache.spark.scheduler
 
-import java.io.{DataInputStream, DataOutputStream}
 import java.nio.ByteBuffer
 import java.util.Properties
 
 import scala.collection.mutable
 import scala.collection.mutable.HashMap
 
+import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
+import com.esotericsoftware.kryo.io.{Input, Output}
+
 import org.apache.spark._
 import org.apache.spark.executor.TaskMetrics
 import org.apache.spark.memory.{MemoryMode, TaskMemoryManager}
 import org.apache.spark.metrics.MetricsSystem
 import org.apache.spark.serializer.SerializerInstance
-import org.apache.spark.util.{AccumulatorV2, ByteBufferInputStream, ByteBufferOutputStream, Utils}
+import org.apache.spark.util.{AccumulatorV2, Utils}
 
 /**
  * A unit of execution. We have two kinds of Task's in Spark:
@@ -42,19 +44,28 @@ import org.apache.spark.util.{AccumulatorV2, ByteBufferInputStream, ByteBufferOu
  * and sends the task output back to the driver application. A ShuffleMapTask executes the task
  * and divides the task output to multiple buckets (based on the task's partitioner).
  *
- * @param stageId id of the stage this task belongs to
- * @param stageAttemptId attempt id of the stage this task belongs to
- * @param partitionId index of the number in the RDD
- * @param metrics a [[TaskMetrics]] that is created at driver side and sent to executor side.
+ * @param _stageId id of the stage this task belongs to
+ * @param _stageAttemptId attempt id of the stage this task belongs to
+ * @param _partitionId index of the number in the RDD
+ * @param _metrics a [[TaskMetrics]] that is created at driver side and sent to executor side.
  * @param localProperties copy of thread-local properties set by the user on the driver side.
  */
 private[spark] abstract class Task[T](
-    val stageId: Int,
-    val stageAttemptId: Int,
-    val partitionId: Int,
+    private var _stageId: Int,
+    private var _stageAttemptId: Int,
+    private var _partitionId: Int,
     // The default value is only used in tests.
-    val metrics: TaskMetrics = TaskMetrics.registered,
-    @transient var localProperties: Properties = new Properties) extends Serializable {
+    private var _metrics: TaskMetrics = TaskMetrics.registered,
+    @transient var localProperties: Properties = new Properties) extends Serializable
+    with KryoSerializable {
+
+  final def stageId: Int = _stageId
+
+  final def stageAttemptId: Int = _stageAttemptId
+
+  final def partitionId: Int = _partitionId
+
+  final def metrics: TaskMetrics = _metrics
 
   /**
    * Called by [[org.apache.spark.executor.Executor]] to run this task.
@@ -115,7 +126,7 @@ private[spark] abstract class Task[T](
     }
   }
 
-  private var taskMemoryManager: TaskMemoryManager = _
+  @transient private var taskMemoryManager: TaskMemoryManager = _
 
   def setTaskMemoryManager(taskMemoryManager: TaskMemoryManager): Unit = {
     this.taskMemoryManager = taskMemoryManager
@@ -184,6 +195,25 @@ private[spark] abstract class Task[T](
       taskThread.interrupt()
     }
   }
+
+  override def write(kryo: Kryo, output: Output): Unit = {
+    output.writeInt(_stageId)
+    output.writeVarInt(_stageAttemptId, true)
+    output.writeVarInt(_partitionId, true)
+    output.writeLong(epoch)
+    output.writeLong(_executorDeserializeTime)
+    _metrics.write(kryo, output)
+  }
+
+  override def read(kryo: Kryo, input: Input): Unit = {
+    _stageId = input.readInt()
+    _stageAttemptId = input.readVarInt(true)
+    _partitionId = input.readVarInt(true)
+    epoch = input.readLong()
+    _executorDeserializeTime = input.readLong()
+    _metrics = new TaskMetrics
+    _metrics.read(kryo, input)
+  }
 }
 
 /**
@@ -204,33 +234,39 @@ private[spark] object Task {
       serializer: SerializerInstance)
     : ByteBuffer = {
 
-    val out = new ByteBufferOutputStream(4096)
-    val dataOut = new DataOutputStream(out)
+    val dataOut = new Output(4096, -1)
 
     // Write currentFiles
-    dataOut.writeInt(currentFiles.size)
+    dataOut.writeVarInt(currentFiles.size, true)
     for ((name, timestamp) <- currentFiles) {
-      dataOut.writeUTF(name)
+      dataOut.writeString(name)
       dataOut.writeLong(timestamp)
     }
 
     // Write currentJars
-    dataOut.writeInt(currentJars.size)
+    dataOut.writeVarInt(currentJars.size, true)
     for ((name, timestamp) <- currentJars) {
-      dataOut.writeUTF(name)
+      dataOut.writeString(name)
       dataOut.writeLong(timestamp)
     }
 
     // Write the task properties separately so it is available before full task deserialization.
-    val propBytes = Utils.serialize(task.localProperties)
-    dataOut.writeInt(propBytes.length)
-    dataOut.write(propBytes)
+    val props = task.localProperties
+    if (props.size() > 0) {
+      val keys = props.keys()
+      while (keys.hasMoreElements) {
+        val key = keys.nextElement().asInstanceOf[String]
+        dataOut.writeString(key)
+        dataOut.writeString(props.getProperty(key))
+      }
+    }
+    // indicates end
+    dataOut.writeString(null)
 
     // Write the task itself and finish
-    dataOut.flush()
     val taskBytes = serializer.serialize(task)
-    Utils.writeByteBuffer(taskBytes, out)
-    out.toByteBuffer
+    Utils.writeByteBuffer(taskBytes, dataOut)
+    ByteBuffer.wrap(dataOut.toBytes)
   }
 
   /**
@@ -243,29 +279,33 @@ private[spark] object Task {
   def deserializeWithDependencies(serializedTask: ByteBuffer)
     : (HashMap[String, Long], HashMap[String, Long], Properties, ByteBuffer) = {
 
-    val in = new ByteBufferInputStream(serializedTask)
-    val dataIn = new DataInputStream(in)
+    val dataIn = new Input()
+    Utils.readByteBufferAsInput(serializedTask, dataIn)
 
     // Read task's files
     val taskFiles = new HashMap[String, Long]()
-    val numFiles = dataIn.readInt()
+    val numFiles = dataIn.readVarInt(true)
     for (i <- 0 until numFiles) {
-      taskFiles(dataIn.readUTF()) = dataIn.readLong()
+      taskFiles(dataIn.readString()) = dataIn.readLong()
     }
 
     // Read task's JARs
     val taskJars = new HashMap[String, Long]()
-    val numJars = dataIn.readInt()
+    val numJars = dataIn.readVarInt(true)
     for (i <- 0 until numJars) {
-      taskJars(dataIn.readUTF()) = dataIn.readLong()
+      val name = dataIn.readString()
+      taskJars(name) = dataIn.readLong()
     }
 
-    val propLength = dataIn.readInt()
-    val propBytes = new Array[Byte](propLength)
-    dataIn.readFully(propBytes, 0, propLength)
-    val taskProps = Utils.deserialize[Properties](propBytes)
+    val taskProps = new Properties
+    var key = dataIn.readString()
+    while (key != null) {
+      taskProps.setProperty(key, dataIn.readString())
+      key = dataIn.readString()
+    }
 
     // Create a sub-buffer for the rest of the data, which is the serialized Task object
+    serializedTask.position(dataIn.position())
     val subBuffer = serializedTask.slice()  // ByteBufferInputStream will have read just up to task
     (taskFiles, taskJars, taskProps, subBuffer)
   }

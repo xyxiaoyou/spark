@@ -909,7 +909,7 @@ abstract class RDD[T: ClassTag](
    * all the data is loaded into the driver's memory.
    */
   def collect(): Array[T] = withScope {
-    val results = sc.runJob(this, (iter: Iterator[T]) => iter.toArray)
+    val results = sc.runJob(this, new JobFunction1[T])
     Array.concat(results: _*)
   }
 
