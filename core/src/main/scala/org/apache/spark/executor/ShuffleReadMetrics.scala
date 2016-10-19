@@ -17,6 +17,9 @@
 
 package org.apache.spark.executor
 
+import com.esotericsoftware.kryo.io.{Input, Output}
+import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
+
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.util.LongAccumulator
 
@@ -27,7 +30,7 @@ import org.apache.spark.util.LongAccumulator
  * Operations are not thread-safe.
  */
 @DeveloperApi
-class ShuffleReadMetrics private[spark] () extends Serializable {
+class ShuffleReadMetrics private[spark] () extends Serializable with KryoSerializable {
   private[executor] val _remoteBlocksFetched = new LongAccumulator
   private[executor] val _localBlocksFetched = new LongAccumulator
   private[executor] val _remoteBytesRead = new LongAccumulator
@@ -110,6 +113,24 @@ class ShuffleReadMetrics private[spark] () extends Serializable {
       _fetchWaitTime.add(metric.fetchWaitTime)
       _recordsRead.add(metric.recordsRead)
     }
+  }
+
+  override def write(kryo: Kryo, output: Output): Unit = {
+    _remoteBlocksFetched.write(kryo, output)
+    _localBlocksFetched.write(kryo, output)
+    _remoteBytesRead.write(kryo, output)
+    _localBytesRead.write(kryo, output)
+    _fetchWaitTime.write(kryo, output)
+    _recordsRead.write(kryo, output)
+  }
+
+  override def read(kryo: Kryo, input: Input): Unit = {
+    _remoteBlocksFetched.read(kryo, input)
+    _localBlocksFetched.read(kryo, input)
+    _remoteBytesRead.read(kryo, input)
+    _localBytesRead.read(kryo, input)
+    _fetchWaitTime.read(kryo, input)
+    _recordsRead.read(kryo, input)
   }
 }
 
