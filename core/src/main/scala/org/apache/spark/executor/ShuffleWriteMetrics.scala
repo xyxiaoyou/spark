@@ -17,9 +17,6 @@
 
 package org.apache.spark.executor
 
-import com.esotericsoftware.kryo.io.{Input, Output}
-import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
-
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.util.LongAccumulator
 
@@ -30,7 +27,7 @@ import org.apache.spark.util.LongAccumulator
  * Operations are not thread-safe.
  */
 @DeveloperApi
-class ShuffleWriteMetrics private[spark] () extends Serializable with KryoSerializable {
+class ShuffleWriteMetrics private[spark] () extends Serializable {
   private[executor] val _bytesWritten = new LongAccumulator
   private[executor] val _recordsWritten = new LongAccumulator
   private[executor] val _writeTime = new LongAccumulator
@@ -58,18 +55,6 @@ class ShuffleWriteMetrics private[spark] () extends Serializable with KryoSerial
   }
   private[spark] def decRecordsWritten(v: Long): Unit = {
     _recordsWritten.setValue(recordsWritten - v)
-  }
-
-  override def write(kryo: Kryo, output: Output): Unit = {
-    _bytesWritten.write(kryo, output)
-    _recordsWritten.write(kryo, output)
-    _writeTime.write(kryo, output)
-  }
-
-  override def read(kryo: Kryo, input: Input): Unit = {
-    _bytesWritten.read(kryo, input)
-    _recordsWritten.read(kryo, input)
-    _writeTime.read(kryo, input)
   }
 
   // Legacy methods for backward compatibility.

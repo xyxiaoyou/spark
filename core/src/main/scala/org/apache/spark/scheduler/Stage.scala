@@ -60,8 +60,7 @@ private[scheduler] abstract class Stage(
     val numTasks: Int,
     val parents: List[Stage],
     val firstJobId: Int,
-    val callSite: CallSite,
-    @transient private[scheduler] var taskBinaryBytes: Array[Byte] = null)
+    val callSite: CallSite)
   extends Logging {
 
   val numPartitions = rdd.partitions.length

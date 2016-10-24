@@ -50,9 +50,8 @@ import scala.language.implicitConversions
 import scala.reflect.{classTag, ClassTag}
 import scala.util.control.NonFatal
 
-import com.esotericsoftware.kryo.io.{Input, Output}
-import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
 import com.google.common.collect.MapMaker
+import org.apache.commons.lang3.SerializationUtils
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.io.{ArrayWritable, BooleanWritable, BytesWritable, DoubleWritable,
@@ -101,8 +100,6 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
   // If true, log warnings instead of throwing exceptions when multiple SparkContexts are active
   private val allowMultipleContexts: Boolean =
     config.getBoolean("spark.driver.allowMultipleContexts", false)
-
-  private val logLineage = config.getBoolean("spark.logLineage", false)
 
   // In order to prevent multiple SparkContexts from being active at the same time, mark this
   // context as having started construction.
@@ -354,7 +351,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
     override protected def childValue(parent: Properties): Properties = {
       // Note: make a clone such that changes in the parent properties aren't reflected in
       // the those of the children threads, which has confusing semantics (SPARK-10563).
-      Utils.cloneProperties(parent)
+      SerializationUtils.clone(parent)
     }
     override protected def initialValue(): Properties = new Properties()
   }
@@ -1883,7 +1880,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
     val callSite = getCallSite
     val cleanedFunc = clean(func)
     logInfo("Starting job: " + callSite.shortForm)
-    if (logLineage) {
+    if (conf.getBoolean("spark.logLineage", false)) {
       logInfo("RDD's recursive dependencies:\n" + rdd.toDebugString)
     }
     dagScheduler.runJob(rdd, cleanedFunc, partitions, callSite, resultHandler, localProperties.get)
@@ -1912,7 +1909,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
       func: Iterator[T] => U,
       partitions: Seq[Int]): Array[U] = {
     val cleanedFunc = clean(func)
-    runJob(rdd, new JobFunction2[T, U](cleanedFunc), partitions)
+    runJob(rdd, (ctx: TaskContext, it: Iterator[T]) => cleanedFunc(it), partitions)
   }
 
   /**
@@ -1948,7 +1945,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
       processPartition: Iterator[T] => U,
       resultHandler: (Int, U) => Unit)
   {
-    val processFunc = new JobFunction2[T, U](processPartition)
+    val processFunc = (context: TaskContext, iter: Iterator[T]) => processPartition(iter)
     runJob[T, U](rdd, processFunc, 0 until rdd.partitions.length, resultHandler)
   }
 
@@ -1989,7 +1986,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
     val callSite = getCallSite
     val waiter = dagScheduler.submitJob(
       rdd,
-      new JobFunction2[T, U](cleanF),
+      (context: TaskContext, iter: Iterator[T]) => cleanF(iter),
       partitions,
       callSite,
       resultHandler,
@@ -2052,12 +2049,8 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
    *   serializable
    */
   private[spark] def clean[F <: AnyRef](f: F, checkSerializable: Boolean = true): F = {
-    f match {
-      case _: JobFunction1[_] | _: JobFunction2[_, _] => f
-      case _ =>
-        ClosureCleaner.clean(f, checkSerializable)
-        f
-    }
+    ClosureCleaner.clean(f, checkSerializable)
+    f
   }
 
   /**
@@ -2657,45 +2650,4 @@ object WritableFactory {
   implicit def writableWritableFactory[T <: Writable: ClassTag]: WritableFactory[T] =
     simpleWritableFactory(w => w)
 
-}
-
-class JobFunction1[T](implicit protected var classTag: ClassTag[T])
-    extends ((Iterator[T]) => Array[T])
-    with Serializable with KryoSerializable {
-
-  override def apply(iter: Iterator[T]): Array[T] =
-    iter.toArray
-
-  override def write(kryo: Kryo, output: Output): Unit = {
-    kryo.writeClass(output, classTag.runtimeClass)
-  }
-
-  override def read(kryo: Kryo, input: Input): Unit = {
-    classTag = ClassTag[T](kryo.readClass(input).getType)
-  }
-
-  override def toString(): String =
-    s"JobFunction1: Iterator[$classTag] => Array[T]"
-}
-
-class JobFunction2[T, U](protected var f: Iterator[T] => U)
-    extends ((TaskContext, Iterator[T]) => U)
-    with Serializable with KryoSerializable {
-
-  def this() = this(null)
-
-  override def apply(context: TaskContext, iter: Iterator[T]): U =
-    f.apply(iter)
-
-  override def write(kryo: Kryo, output: Output): Unit = {
-    // doesn't need to carry ClassTag[U] since its not used
-    kryo.writeClassAndObject(output, f)
-  }
-
-  override def read(kryo: Kryo, input: Input): Unit = {
-    f = kryo.readClassAndObject(input).asInstanceOf[(Iterator[T] => U)]
-  }
-
-  override def toString(): String =
-    s"JobFunction2: Iterator[T] => U"
 }

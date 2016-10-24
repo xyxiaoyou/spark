@@ -17,17 +17,13 @@
 
 package org.apache.spark.executor
 
-import scala.collection.mutable.LinkedHashMap
-import scala.collection.mutable.ArrayBuffer
-
-import com.esotericsoftware.kryo.io.{Input, Output}
-import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
+import scala.collection.mutable.{ArrayBuffer, LinkedHashMap}
 
 import org.apache.spark._
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.internal.Logging
 import org.apache.spark.scheduler.AccumulableInfo
-import org.apache.spark.storage.{BlockId, BlockStatus, StorageLevel}
+import org.apache.spark.storage.{BlockId, BlockStatus}
 import org.apache.spark.util.{AccumulatorContext, AccumulatorMetadata, AccumulatorV2, LongAccumulator}
 
 
@@ -45,7 +41,7 @@ import org.apache.spark.util.{AccumulatorContext, AccumulatorMetadata, Accumulat
  * be sent to the driver.
  */
 @DeveloperApi
-class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
+class TaskMetrics private[spark] () extends Serializable {
   // Each metric is internally represented as an accumulator
   private val _executorDeserializeTime = new LongAccumulator
   private val _executorRunTime = new LongAccumulator
@@ -238,38 +234,6 @@ class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
       acc.name.isDefined && acc.name.get == name
     }
   }
-
-  override def write(kryo: Kryo, output: Output): Unit = {
-    _executorDeserializeTime.write(kryo, output)
-    _executorRunTime.write(kryo, output)
-    _resultSize.write(kryo, output)
-    _jvmGCTime.write(kryo, output)
-    _resultSerializationTime.write(kryo, output)
-    _memoryBytesSpilled.write(kryo, output)
-    _diskBytesSpilled.write(kryo, output)
-    _peakExecutionMemory.write(kryo, output)
-    _updatedBlockStatuses.write(kryo, output)
-    inputMetrics.write(kryo, output)
-    outputMetrics.write(kryo, output)
-    shuffleReadMetrics.write(kryo, output)
-    shuffleWriteMetrics.write(kryo, output)
-  }
-
-  override def read(kryo: Kryo, input: Input): Unit = {
-    _executorDeserializeTime.read(kryo, input)
-    _executorRunTime.read(kryo, input)
-    _resultSize.read(kryo, input)
-    _jvmGCTime.read(kryo, input)
-    _resultSerializationTime.read(kryo, input)
-    _memoryBytesSpilled.read(kryo, input)
-    _diskBytesSpilled.read(kryo, input)
-    _peakExecutionMemory.read(kryo, input)
-    _updatedBlockStatuses.read(kryo, input)
-    inputMetrics.read(kryo, input)
-    outputMetrics.read(kryo, input)
-    shuffleReadMetrics.read(kryo, input)
-    shuffleWriteMetrics.read(kryo, input)
-  }
 }
 
 
@@ -335,8 +299,7 @@ private[spark] object TaskMetrics extends Logging {
 
 
 private[spark] class BlockStatusesAccumulator
-  extends AccumulatorV2[(BlockId, BlockStatus), Seq[(BlockId, BlockStatus)]]
-  with KryoSerializable {
+  extends AccumulatorV2[(BlockId, BlockStatus), Seq[(BlockId, BlockStatus)]] {
   private var _seq = ArrayBuffer.empty[(BlockId, BlockStatus)]
 
   override def isZero(): Boolean = _seq.isEmpty
@@ -365,41 +328,5 @@ private[spark] class BlockStatusesAccumulator
   def setValue(newValue: Seq[(BlockId, BlockStatus)]): Unit = {
     _seq.clear()
     _seq ++= newValue
-  }
-
-  override def write(kryo: Kryo, output: Output): Unit = {
-    val instance = writeKryoBase(kryo, output)
-    val len = instance._seq.length
-    output.writeVarInt(len, true)
-    var index = 0
-    while (index < len) {
-      val (id, status) = instance._seq(index)
-      kryo.writeClassAndObject(output, id)
-      output.writeLong(status.memSize)
-      output.writeLong(status.diskSize)
-      val storageLevel = status.storageLevel
-      output.writeByte(storageLevel.toInt)
-      output.writeByte(storageLevel.replication)
-      index += 1
-    }
-  }
-
-  override def read(kryo: Kryo, input: Input): Unit = {
-    readKryoBase(kryo, input)
-    if (_seq.nonEmpty) _seq.clear()
-    var len = input.readVarInt(true)
-    _seq.sizeHint(len)
-    while (len > 0) {
-      val id = kryo.readClassAndObject(input).asInstanceOf[BlockId]
-      val memSize = input.readLong()
-      val diskSize = input.readLong()
-      val levelFlags = input.readByte()
-      val replication = input.readByte()
-      val status = BlockStatus(StorageLevel(levelFlags, replication),
-        memSize, diskSize)
-      _seq += id -> status
-
-      len -= 1
-    }
   }
 }

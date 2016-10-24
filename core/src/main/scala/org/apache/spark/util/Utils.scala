@@ -56,7 +56,6 @@ import scala.reflect.ClassTag
 import scala.util.Try
 import scala.util.control.{ControlThrowable, NonFatal}
 
-import com.esotericsoftware.kryo.io.Input
 import com.google.common.io.{ByteStreams, Files => GFiles}
 import com.google.common.net.InetAddresses
 import org.apache.commons.lang3.SystemUtils
@@ -146,19 +145,6 @@ private[spark] object Utils extends Logging {
 
   /** Shorthand for calling truncatedString() without start or end strings. */
   def truncatedString[T](seq: Seq[T], sep: String): String = truncatedString(seq, "", sep, "")
-
-  def cloneProperties(properties: Properties): Properties = {
-    if (properties.isEmpty) new Properties
-    else {
-      val newProperties = new Properties()
-      val keys = properties.keys()
-      while (keys.hasMoreElements) {
-        val key = keys.nextElement().asInstanceOf[String]
-        newProperties.setProperty(key, properties.getProperty(key))
-      }
-      newProperties
-    }
-  }
 
   /** Serialize an object using Java serialization */
   def serialize[T](o: T): Array[Byte] = {
@@ -282,18 +268,6 @@ private[spark] object Utils extends Logging {
       val bbval = new Array[Byte](bb.remaining())
       bb.get(bbval)
       out.write(bbval)
-    }
-  }
-
-  def readByteBufferAsInput(bb: ByteBuffer, input: Input): Unit = {
-    if (bb.hasArray) {
-      input.setBuffer(bb.array(),
-        bb.arrayOffset() + bb.position(), bb.remaining())
-    } else {
-      val numBytes = bb.remaining()
-      val bytes = new Array[Byte](numBytes)
-      bb.get(bytes, 0, numBytes)
-      input.setBuffer(bytes, 0, numBytes)
     }
   }
 

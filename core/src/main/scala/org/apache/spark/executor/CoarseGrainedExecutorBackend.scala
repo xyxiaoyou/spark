@@ -31,7 +31,9 @@ import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.deploy.worker.WorkerWatcher
 import org.apache.spark.internal.Logging
 import org.apache.spark.rpc._
+import org.apache.spark.scheduler.TaskDescription
 import org.apache.spark.scheduler.cluster.CoarseGrainedClusterMessages._
+import org.apache.spark.serializer.SerializerInstance
 import org.apache.spark.util.{ThreadUtils, Utils}
 
 private[spark] class CoarseGrainedExecutorBackend(
@@ -47,6 +49,10 @@ private[spark] class CoarseGrainedExecutorBackend(
   private[this] val stopping = new AtomicBoolean(false)
   var executor: Executor = null
   @volatile var driver: Option[RpcEndpointRef] = None
+
+  // If this CoarseGrainedExecutorBackend is changed to support multiple threads, then this may need
+  // to be changed so that we don't share the serializer instance across threads
+  private[this] val ser: SerializerInstance = env.closureSerializer.newInstance()
 
   override def onStart() {
     logInfo("Connecting to driver: " + driverUrl)
@@ -85,11 +91,12 @@ private[spark] class CoarseGrainedExecutorBackend(
     case RegisterExecutorFailed(message) =>
       exitExecutor(1, "Slave registration failed: " + message)
 
-    case LaunchTask(taskDesc) =>
+    case LaunchTask(data) =>
       if (executor == null) {
         exitExecutor(1, "Received LaunchTask command but executor was null")
       } else {
-        logDebug("Got assigned task " + taskDesc.taskId)
+        val taskDesc = ser.deserialize[TaskDescription](data.value)
+        logInfo("Got assigned task " + taskDesc.taskId)
         executor.launchTask(this, taskId = taskDesc.taskId, attemptNumber = taskDesc.attemptNumber,
           taskDesc.name, taskDesc.serializedTask)
       }
