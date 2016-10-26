@@ -353,18 +353,19 @@ private[spark] object ExecutorsPage {
     val memUsed = status.memUsed
     val maxMem = status.maxMem
     val diskUsed = status.diskUsed
-    val totalCores = listener.executorToTotalCores.getOrElse(execId, 0)
-    val maxTasks = listener.executorToTasksMax.getOrElse(execId, 0)
-    val activeTasks = listener.executorToTasksActive.getOrElse(execId, 0)
-    val failedTasks = listener.executorToTasksFailed.getOrElse(execId, 0)
-    val completedTasks = listener.executorToTasksComplete.getOrElse(execId, 0)
+    val data = listener.getExecutorData(execId)
+    val totalCores = data.totalCores
+    val maxTasks = data.tasksMax
+    val activeTasks = data.tasksActive
+    val failedTasks = data.tasksFailed
+    val completedTasks = data.tasksComplete
     val totalTasks = activeTasks + failedTasks + completedTasks
-    val totalDuration = listener.executorToDuration.getOrElse(execId, 0L)
-    val totalGCTime = listener.executorToJvmGCTime.getOrElse(execId, 0L)
-    val totalInputBytes = listener.executorToInputBytes.getOrElse(execId, 0L)
-    val totalShuffleRead = listener.executorToShuffleRead.getOrElse(execId, 0L)
-    val totalShuffleWrite = listener.executorToShuffleWrite.getOrElse(execId, 0L)
-    val executorLogs = listener.executorToLogUrls.getOrElse(execId, Map.empty)
+    val totalDuration = data.duration
+    val totalGCTime = data.jvmGCTime
+    val totalInputBytes = data.inputBytes
+    val totalShuffleRead = data.shuffleRead
+    val totalShuffleWrite = data.shuffleWrite
+    val executorLogs = data.logUrls
 
     new ExecutorSummary(
       execId,

@@ -151,10 +151,15 @@ private[spark] object Utils extends Logging {
     if (properties.isEmpty) new Properties
     else {
       val newProperties = new Properties()
-      val keys = properties.keys()
+      val keys = properties.propertyNames()
       while (keys.hasMoreElements) {
         val key = keys.nextElement().asInstanceOf[String]
-        newProperties.setProperty(key, properties.getProperty(key))
+        val value = properties.getProperty(key)
+        if (value ne null) {
+          newProperties.setProperty(key, value)
+        } else {
+          newProperties.put(key, properties.get(key))
+        }
       }
       newProperties
     }

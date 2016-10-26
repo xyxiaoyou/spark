@@ -1911,6 +1911,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
     dagScheduler.runJob(rdd, cleanedFunc, partitions, callSite, resultHandler, localProperties.get)
     progressBar.foreach(_.finishAll())
     rdd.doCheckpoint()
+    logInfo("Job finished: " + callSite.shortForm)
   }
 
   /**
@@ -2077,7 +2078,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
     f match {
       case _: JobFunction1[_] | _: JobFunction2[_, _] => f
       case _ =>
-        ClosureCleaner.clean(f, checkSerializable)
+        ClosureCleaner.clean(f, checkSerializable = false)
         f
     }
   }

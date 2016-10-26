@@ -308,26 +308,22 @@ private[spark] class Executor(
           throw new TaskKilledException
         }
 
-        val resultSer = env.serializer.newInstance()
-        val beforeSerialization = System.nanoTime()
-        val valueBytes = resultSer.serialize(value)
-        val afterSerialization = System.nanoTime()
-
         // Deserialization happens in two parts: first, we deserialize a Task object, which
         // includes the Partition. Second, Task.run() deserializes the RDD and function to be run.
         task.metrics.setExecutorDeserializeTime(math.max(
-          taskStart - deserializeStartTime + task.executorDeserializeTime, 0L) / 1000000)
+          taskStart - deserializeStartTime + task.executorDeserializeTime, 0L) / 1000000.0)
         // We need to subtract Task.run()'s deserialization time to avoid double-counting
         task.metrics.setExecutorRunTime(math.max(
-          taskFinish - taskStart - task.executorDeserializeTime, 0L) / 1000000)
+          taskFinish - taskStart - task.executorDeserializeTime, 0L) / 1000000.0)
         task.metrics.setJvmGCTime(computeTotalGcTime() - startGCTime)
-        task.metrics.setResultSerializationTime(
-          (afterSerialization - beforeSerialization) / 1000000)
 
         // Note: accumulator updates must be collected after TaskMetrics is updated
+        // Now resultSerializationTime is evaluated directly inside the
+        // serialization write methods and added to final serialized bytes
+        // to avoid double serialization of Task (for timing) then TaskResult.
         val accumUpdates = task.collectAccumulatorUpdates()
-        // TODO: do not serialize value twice
-        val directResult = new DirectTaskResult(valueBytes, accumUpdates)
+        val directResult = new DirectTaskResult(value, accumUpdates,
+          Some(task.metrics.resultSerializationTimeMetric))
         val serializedDirectResult = ser.serialize(directResult)
         val resultSize = serializedDirectResult.limit
 
@@ -381,7 +377,7 @@ private[spark] class Executor(
           val accums: Seq[AccumulatorV2[_, _]] =
             if (task != null) {
               task.metrics.setExecutorRunTime(
-                math.max(System.nanoTime() - taskStart, 0L) / 1000000)
+                math.max(System.nanoTime() - taskStart, 0L) / 1000000.0)
               task.metrics.setJvmGCTime(computeTotalGcTime() - startGCTime)
               task.collectAccumulatorUpdates(taskFailed = true)
             } else {

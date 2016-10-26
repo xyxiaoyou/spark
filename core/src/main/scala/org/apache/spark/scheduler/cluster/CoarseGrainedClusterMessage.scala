@@ -19,10 +19,14 @@ package org.apache.spark.scheduler.cluster
 
 import java.nio.ByteBuffer
 
+import com.esotericsoftware.kryo.io.{Input, Output}
+import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
+
+import org.apache.spark.TaskState
 import org.apache.spark.TaskState.TaskState
 import org.apache.spark.rpc.RpcEndpointRef
 import org.apache.spark.scheduler.{ExecutorLossReason, TaskDescription}
-import org.apache.spark.util.SerializableBuffer
+import org.apache.spark.util.{SerializableBuffer, Utils}
 
 private[spark] sealed trait CoarseGrainedClusterMessage extends Serializable
 
@@ -33,7 +37,18 @@ private[spark] object CoarseGrainedClusterMessages {
   case object RetrieveLastAllocatedExecutorId extends CoarseGrainedClusterMessage
 
   // Driver to executors
-  case class LaunchTask(task: TaskDescription) extends CoarseGrainedClusterMessage
+  case class LaunchTask(private var task: TaskDescription)
+      extends CoarseGrainedClusterMessage with KryoSerializable {
+
+    override def write(kryo: Kryo, output: Output): Unit = {
+      task.write(kryo, output)
+    }
+
+    override def read(kryo: Kryo, input: Input): Unit = {
+      task = new TaskDescription(0L, 0, null, null, 0, null)
+      task.read(kryo, input)
+    }
+  }
 
   case class KillTask(taskId: Long, executor: String, interruptThread: Boolean)
     extends CoarseGrainedClusterMessage
@@ -54,8 +69,27 @@ private[spark] object CoarseGrainedClusterMessages {
       logUrls: Map[String, String])
     extends CoarseGrainedClusterMessage
 
-  case class StatusUpdate(executorId: String, taskId: Long, state: TaskState,
-    data: SerializableBuffer) extends CoarseGrainedClusterMessage
+  case class StatusUpdate(var executorId: String, var taskId: Long,
+      var state: TaskState, var data: SerializableBuffer)
+      extends CoarseGrainedClusterMessage with KryoSerializable {
+
+    override def write(kryo: Kryo, output: Output): Unit = {
+      output.writeString(executorId)
+      output.writeLong(taskId)
+      output.writeVarInt(state.id, true)
+      val buffer = data.buffer
+      output.writeInt(buffer.remaining())
+      Utils.writeByteBuffer(buffer, output)
+    }
+
+    override def read(kryo: Kryo, input: Input): Unit = {
+      executorId = input.readString()
+      taskId = input.readLong()
+      state = TaskState(input.readVarInt(true))
+      val len = input.readInt()
+      data = new SerializableBuffer(ByteBuffer.wrap(input.readBytes(len)))
+    }
+  }
 
   object StatusUpdate {
     /** Alternate factory method that takes a ByteBuffer directly for the data field */

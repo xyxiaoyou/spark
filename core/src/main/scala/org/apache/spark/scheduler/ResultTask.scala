@@ -21,7 +21,7 @@ import java.io._
 import java.nio.ByteBuffer
 import java.util.Properties
 
-import com.esotericsoftware.kryo.Kryo
+import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
 import com.esotericsoftware.kryo.io.{Input, Output}
 
 import org.apache.spark._
@@ -58,7 +58,7 @@ private[spark] class ResultTask[T, U](
     metrics: TaskMetrics)
   extends Task[U](stageId, stageAttemptId, partition.index,
     _taskBinaryBytes, _taskBinary, metrics, localProperties)
-  with Serializable {
+  with Serializable with KryoSerializable {
 
   final def outputId: Int = _outputId
 
@@ -84,13 +84,13 @@ private[spark] class ResultTask[T, U](
   override def toString: String = "ResultTask(" + stageId + ", " + partitionId + ")"
 
   override def write(kryo: Kryo, output: Output): Unit = {
-    super.write(kryo, output)
+    super.writeKryo(kryo, output)
     kryo.writeClassAndObject(output, partition)
     output.writeInt(_outputId)
   }
 
   override def read(kryo: Kryo, input: Input): Unit = {
-    super.read(kryo, input)
+    super.readKryo(kryo, input)
     partition = kryo.readClassAndObject(input).asInstanceOf[Partition]
     _outputId = input.readInt()
   }

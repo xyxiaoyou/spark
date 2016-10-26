@@ -26,8 +26,9 @@ import scala.xml._
 import org.apache.commons.lang3.StringEscapeUtils
 
 import org.apache.spark.JobExecutionStatus
+import org.apache.spark.ui.exec.ExecutorData
 import org.apache.spark.ui.{ToolTips, UIUtils, WebUIPage}
-import org.apache.spark.ui.jobs.UIData.{ExecutorUIData, JobUIData}
+import org.apache.spark.ui.jobs.UIData.JobUIData
 
 /** Page showing list of all ongoing and recently finished jobs */
 private[ui] class AllJobsPage(parent: JobsTab) extends WebUIPage("") {
@@ -119,10 +120,11 @@ private[ui] class AllJobsPage(parent: JobsTab) extends WebUIPage("") {
     }
   }
 
-  private def makeExecutorEvent(executorUIDatas: HashMap[String, ExecutorUIData]): Seq[String] = {
+  private def makeExecutorEvent(executorUIDatas: HashMap[String, ExecutorData]): Seq[String] = {
     val events = ListBuffer[String]()
     executorUIDatas.foreach {
-      case (executorId, event) =>
+      case (executorId, data) if data.uiData != null =>
+        val event = data.uiData
         val addedEvent =
           s"""
              |{
@@ -167,7 +169,7 @@ private[ui] class AllJobsPage(parent: JobsTab) extends WebUIPage("") {
 
   private def makeTimeline(
       jobs: Seq[JobUIData],
-      executors: HashMap[String, ExecutorUIData],
+      executors: HashMap[String, ExecutorData],
       startTime: Long): Seq[Node] = {
 
     val jobEventJsonAsStrSeq = makeJobEvent(jobs)

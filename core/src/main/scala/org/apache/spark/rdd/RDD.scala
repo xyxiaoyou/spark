@@ -146,7 +146,8 @@ abstract class RDD[T: ClassTag](
   def sparkContext: SparkContext = sc
 
   /** A unique ID for this RDD (within its SparkContext). */
-  val id: Int = sc.newRddId()
+  protected var _id: Int = sc.newRddId()
+  def id: Int = _id
 
   /** A friendly name for this RDD */
   @transient var name: String = null
@@ -1616,7 +1617,7 @@ abstract class RDD[T: ClassTag](
   // Other internal methods and fields
   // =======================================================================
 
-  private var storageLevel: StorageLevel = StorageLevel.NONE
+  protected var storageLevel: StorageLevel = StorageLevel.NONE
 
   /** User code that created this RDD (e.g. `textFile`, `parallelize`). */
   @transient private[spark] val creationSite = sc.getCallSite()
@@ -1686,9 +1687,24 @@ abstract class RDD[T: ClassTag](
    * doCheckpoint() is called recursively on the parent RDDs.
    */
   private[spark] def doCheckpoint(): Unit = {
+    if (doCheckpointCalled) return
+    val checkpoints = new mutable.ArrayBuffer[RDDCheckpointData[_]](2)
+    def fillCheckpoints(rdd: RDD[_]): Unit = {
+      if (rdd.checkpointData.isDefined) {
+        checkpoints += rdd.checkpointData.get
+        if (!rdd.checkpointAllMarkedAncestors) return
+      }
+      for (dep <- rdd.dependencies) {
+        fillCheckpoints(dep.rdd)
+      }
+    }
+    fillCheckpoints(this)
+    if (checkpoints.isEmpty) return
     RDDOperationScope.withScope(sc, "checkpoint", allowNesting = false, ignoreParent = true) {
       if (!doCheckpointCalled) {
         doCheckpointCalled = true
+        checkpoints.foreach(_.checkpoint())
+        /*
         if (checkpointData.isDefined) {
           if (checkpointAllMarkedAncestors) {
             // TODO We can collect all the RDDs that needs to be checkpointed, and then checkpoint
@@ -1701,6 +1717,7 @@ abstract class RDD[T: ClassTag](
         } else {
           dependencies.foreach(_.rdd.doCheckpoint())
         }
+        */
       }
     }
   }

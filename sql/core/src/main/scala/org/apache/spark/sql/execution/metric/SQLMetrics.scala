@@ -25,11 +25,11 @@ import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
 
 import org.apache.spark.SparkContext
 import org.apache.spark.scheduler.AccumulableInfo
-import org.apache.spark.util.{AccumulatorContext, AccumulatorV2, Utils}
+import org.apache.spark.util.{AccumulatorContext, AccumulatorV2, AccumulatorV2Kryo, Utils}
 
 
-final class SQLMetric(val metricType: String, initValue: Long = 0L)
-    extends AccumulatorV2[Long, Long] with KryoSerializable {
+final class SQLMetric(var metricType: String, initValue: Long = 0L)
+    extends AccumulatorV2Kryo[Long, Long] with KryoSerializable {
   // This is a workaround for SPARK-11013.
   // We may use -1 as initial value of the accumulator, if the accumulator is valid, we will
   // update it at the end of task and the value will be at least 0. Then we can filter out the -1
@@ -65,14 +65,14 @@ final class SQLMetric(val metricType: String, initValue: Long = 0L)
       id, name, update, value, true, true, Some(AccumulatorContext.SQL_ACCUM_IDENTIFIER))
   }
 
-  override def write(kryo: Kryo, output: Output): Unit = {
-    val instance = writeKryoBase(kryo, output)
-    output.writeLong(instance._value)
-    output.writeLong(instance._zeroValue)
+  override def writeKryo(kryo: Kryo, output: Output): Unit = {
+    output.writeString(metricType)
+    output.writeLong(_value)
+    output.writeLong(_zeroValue)
   }
 
-  override def read(kryo: Kryo, input: Input): Unit = {
-    readKryoBase(kryo, input)
+  override def readKryo(kryo: Kryo, input: Input): Unit = {
+    metricType = input.readString()
     _value = input.readLong()
     _zeroValue = input.readLong()
   }

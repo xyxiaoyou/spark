@@ -20,6 +20,7 @@ package org.apache.spark.executor
 import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
 import com.esotericsoftware.kryo.io.{Input, Output}
 
+import org.apache.spark.TaskContext
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.util.LongAccumulator
 
@@ -124,13 +125,17 @@ class ShuffleReadMetrics private[spark] () extends Serializable with KryoSeriali
     _recordsRead.write(kryo, output)
   }
 
-  override def read(kryo: Kryo, input: Input): Unit = {
-    _remoteBlocksFetched.read(kryo, input)
-    _localBlocksFetched.read(kryo, input)
-    _remoteBytesRead.read(kryo, input)
-    _localBytesRead.read(kryo, input)
-    _fetchWaitTime.read(kryo, input)
-    _recordsRead.read(kryo, input)
+  override final def read(kryo: Kryo, input: Input): Unit = {
+    read(kryo, input, context = null)
+  }
+
+  def read(kryo: Kryo, input: Input, context: TaskContext): Unit = {
+    _remoteBlocksFetched.read(kryo, input, context)
+    _localBlocksFetched.read(kryo, input, context)
+    _remoteBytesRead.read(kryo, input, context)
+    _localBytesRead.read(kryo, input, context)
+    _fetchWaitTime.read(kryo, input, context)
+    _recordsRead.read(kryo, input, context)
   }
 }
 

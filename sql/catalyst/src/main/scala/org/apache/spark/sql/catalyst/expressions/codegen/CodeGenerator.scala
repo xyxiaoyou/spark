@@ -790,7 +790,16 @@ class CodeAndComment(val body: String, val comment: collection.Map[String, Strin
     case _ => false
   }
 
-  override def hashCode(): Int = body.hashCode
+  private[sql] var hash = 0
+
+  override def hashCode(): Int = {
+    val h = hash
+    if (h != 0) h
+    else {
+      hash = body.hashCode
+      hash
+    }
+  }
 }
 
 /**

@@ -276,7 +276,9 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
    */
   protected def statePrefix = if (missingInput.nonEmpty && children.nonEmpty) "!" else ""
 
-  override def simpleString: String = statePrefix + super.simpleString
+  protected lazy val _simpleString = statePrefix + super.simpleString
+
+  override def simpleString: String = _simpleString
 
   override def verboseString: String = simpleString
 

@@ -51,7 +51,7 @@ object SQLExecution {
         val callSite = sparkSession.sparkContext.getCallSite()
 
         sparkSession.sparkContext.listenerBus.post(SparkListenerSQLExecutionStart(
-          executionId, callSite.shortForm, callSite.longForm, () => queryExecution.toString,
+          executionId, callSite.shortForm, callSite.longForm, queryExecution.toString,
           SparkPlanInfo.fromSparkPlan(queryExecution.executedPlan), System.currentTimeMillis()))
         try {
           body

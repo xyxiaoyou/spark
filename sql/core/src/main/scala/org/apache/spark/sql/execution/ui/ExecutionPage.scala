@@ -79,7 +79,7 @@ class ExecutionPage(parent: SQLTab) extends WebUIPage("execution") with Logging 
 
       summary ++
         planVisualization(metrics, executionUIData.physicalPlanGraph) ++
-        physicalPlanDescription(executionUIData.physicalPlanDescription())
+        physicalPlanDescription(executionUIData.physicalPlanDescription)
     }.getOrElse {
       <div>No information to display for Plan {executionId}</div>
     }

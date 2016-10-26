@@ -20,6 +20,7 @@ package org.apache.spark.executor
 import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
 import com.esotericsoftware.kryo.io.{Input, Output}
 
+import org.apache.spark.TaskContext
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.util.LongAccumulator
 
@@ -65,8 +66,12 @@ class InputMetrics private[spark] () extends Serializable with KryoSerializable 
     _recordsRead.write(kryo, output)
   }
 
-  override def read(kryo: Kryo, input: Input): Unit = {
-    _bytesRead.read(kryo, input)
-    _recordsRead.read(kryo, input)
+  override final def read(kryo: Kryo, input: Input): Unit = {
+    read(kryo, input, context = null)
+  }
+
+  def read(kryo: Kryo, input: Input, context: TaskContext): Unit = {
+    _bytesRead.read(kryo, input, context)
+    _recordsRead.read(kryo, input, context)
   }
 }

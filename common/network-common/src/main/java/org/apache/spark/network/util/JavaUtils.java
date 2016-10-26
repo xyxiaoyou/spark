@@ -159,17 +159,15 @@ public class JavaUtils {
       .build();
 
   private static final Pattern timePattern =
-      Pattern.compile("(-?[0-9]+)([a-z]+)?");
+      Pattern.compile("\\s*(-?[0-9]+)([a-z]+)?\\s*", Pattern.CASE_INSENSITIVE);
 
   /**
    * Convert a passed time string (e.g. 50s, 100ms, or 250us) to a time count in the given unit.
    * The unit is also considered the default if the given string does not specify a unit.
    */
   public static long timeStringAs(String str, TimeUnit unit) {
-    String lower = str.toLowerCase().trim();
-
     try {
-      Matcher m = timePattern.matcher(lower);
+      Matcher m = timePattern.matcher(str);
       if (!m.matches()) {
         throw new NumberFormatException("Failed to parse time string: " + str);
       }
@@ -178,12 +176,12 @@ public class JavaUtils {
       String suffix = m.group(2);
 
       // Check for invalid suffixes
-      if (suffix != null && !timeSuffixes.containsKey(suffix)) {
+      if (suffix != null && (unit = timeSuffixes.get(suffix.toLowerCase())) == null) {
         throw new NumberFormatException("Invalid suffix: \"" + suffix + "\"");
       }
 
       // If suffix is valid use that, otherwise none was provided and use the default passed
-      return unit.convert(val, suffix != null ? timeSuffixes.get(suffix) : unit);
+      return unit.convert(val, unit);
     } catch (NumberFormatException e) {
       String timeError = "Time must be specified as seconds (s), " +
               "milliseconds (ms), microseconds (us), minutes (m or min), hour (h), or day (d). " +
@@ -210,33 +208,31 @@ public class JavaUtils {
   }
 
   private static final Pattern numberPattern =
-      Pattern.compile("([0-9]+)([a-z]+)?");
+      Pattern.compile("\\s*([0-9]+)([a-z]+)?\\s*", Pattern.CASE_INSENSITIVE);
   private static final Pattern fractionPattern =
-      Pattern.compile("([0-9]+\\.[0-9]+)([a-z]+)?");
+      Pattern.compile("\\s*([0-9]+\\.[0-9]+)([a-z]+)?\\s*", Pattern.CASE_INSENSITIVE);
 
   /**
    * Convert a passed byte string (e.g. 50b, 100kb, or 250mb) to the given. If no suffix is
    * provided, a direct conversion to the provided unit is attempted.
    */
   public static long byteStringAs(String str, ByteUnit unit) {
-    String lower = str.toLowerCase().trim();
-
     try {
-      Matcher m = numberPattern.matcher(lower);
-      Matcher fractionMatcher = fractionPattern.matcher(lower);
+      Matcher m = numberPattern.matcher(str);
+      Matcher fractionMatcher;
 
       if (m.matches()) {
         long val = Long.parseLong(m.group(1));
         String suffix = m.group(2);
 
         // Check for invalid suffixes
-        if (suffix != null && !byteSuffixes.containsKey(suffix)) {
+        if (suffix != null && (unit = byteSuffixes.get(suffix.toLowerCase())) == null) {
           throw new NumberFormatException("Invalid suffix: \"" + suffix + "\"");
         }
 
         // If suffix is valid use that, otherwise none was provided and use the default passed
-        return unit.convertFrom(val, suffix != null ? byteSuffixes.get(suffix) : unit);
-      } else if (fractionMatcher.matches()) {
+        return unit.convertFrom(val, unit);
+      } else if ((fractionMatcher = fractionPattern.matcher(str)).matches()) {
         throw new NumberFormatException("Fractional values are not supported. Input was: "
           + fractionMatcher.group(1));
       } else {

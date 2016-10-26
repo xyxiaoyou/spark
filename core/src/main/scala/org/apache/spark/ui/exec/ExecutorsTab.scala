@@ -17,7 +17,7 @@
 
 package org.apache.spark.ui.exec
 
-import scala.collection.mutable.HashMap
+import scala.collection.mutable
 
 import org.apache.spark.{ExceptionFailure, Resubmitted, SparkConf, SparkContext}
 import org.apache.spark.annotation.DeveloperApi
@@ -45,38 +45,30 @@ private[ui] class ExecutorsTab(parent: SparkUI) extends SparkUITab(parent, "exec
 @DeveloperApi
 class ExecutorsListener(storageStatusListener: StorageStatusListener, conf: SparkConf)
     extends SparkListener {
-  val executorToTotalCores = HashMap[String, Int]()
-  val executorToTasksMax = HashMap[String, Int]()
-  val executorToTasksActive = HashMap[String, Int]()
-  val executorToTasksComplete = HashMap[String, Int]()
-  val executorToTasksFailed = HashMap[String, Int]()
-  val executorToDuration = HashMap[String, Long]()
-  val executorToJvmGCTime = HashMap[String, Long]()
-  val executorToInputBytes = HashMap[String, Long]()
-  val executorToInputRecords = HashMap[String, Long]()
-  val executorToOutputBytes = HashMap[String, Long]()
-  val executorToOutputRecords = HashMap[String, Long]()
-  val executorToShuffleRead = HashMap[String, Long]()
-  val executorToShuffleWrite = HashMap[String, Long]()
-  val executorToLogUrls = HashMap[String, Map[String, String]]()
-  val executorIdToData = HashMap[String, ExecutorUIData]()
+
+  private[spark] val executorIdToData = mutable.HashMap[String, ExecutorData]()
 
   def activeStorageStatusList: Seq[StorageStatus] = storageStatusListener.storageStatusList
 
   def deadStorageStatusList: Seq[StorageStatus] = storageStatusListener.deadStorageStatusList
 
+  def getExecutorData(eid: String): ExecutorData = {
+    executorIdToData.getOrElseUpdate(eid, new ExecutorData)
+  }
+
   override def onExecutorAdded(executorAdded: SparkListenerExecutorAdded): Unit = synchronized {
     val eid = executorAdded.executorId
-    executorToLogUrls(eid) = executorAdded.executorInfo.logUrlMap
-    executorToTotalCores(eid) = executorAdded.executorInfo.totalCores
-    executorToTasksMax(eid) = executorToTotalCores(eid) / conf.getInt("spark.task.cpus", 1)
-    executorIdToData(eid) = new ExecutorUIData(executorAdded.time)
+    val data = getExecutorData(eid)
+    data.logUrls = executorAdded.executorInfo.logUrlMap
+    data.totalCores = executorAdded.executorInfo.totalCores
+    data.tasksMax = data.totalCores / conf.getInt("spark.task.cpus", 1)
+    data.uiData = new ExecutorUIData(executorAdded.time)
   }
 
   override def onExecutorRemoved(
       executorRemoved: SparkListenerExecutorRemoved): Unit = synchronized {
     val eid = executorRemoved.executorId
-    val uiData = executorIdToData(eid)
+    val uiData = getExecutorData(eid).uiData
     uiData.finishTime = Some(executorRemoved.time)
     uiData.finishReason = Some(executorRemoved.reason)
   }
@@ -87,19 +79,21 @@ class ExecutorsListener(storageStatusListener: StorageStatusListener, conf: Spar
         s.blockManagerId.executorId == SparkContext.LEGACY_DRIVER_IDENTIFIER ||
         s.blockManagerId.executorId == SparkContext.DRIVER_IDENTIFIER
       }
-      storageStatus.foreach { s => executorToLogUrls(s.blockManagerId.executorId) = logs.toMap }
+      storageStatus.foreach { s =>
+        getExecutorData(s.blockManagerId.executorId).logUrls = logs.toMap }
     }
   }
 
   override def onTaskStart(taskStart: SparkListenerTaskStart): Unit = synchronized {
     val eid = taskStart.taskInfo.executorId
-    executorToTasksActive(eid) = executorToTasksActive.getOrElse(eid, 0) + 1
+    getExecutorData(eid).tasksActive += 1
   }
 
   override def onTaskEnd(taskEnd: SparkListenerTaskEnd): Unit = synchronized {
     val info = taskEnd.taskInfo
     if (info != null) {
       val eid = info.executorId
+      val data = getExecutorData(eid)
       taskEnd.reason match {
         case Resubmitted =>
           // Note: For resubmitted tasks, we continue to use the metrics that belong to the
@@ -107,34 +101,44 @@ class ExecutorsListener(storageStatusListener: StorageStatusListener, conf: Spar
           // could have failed half-way through. The correct fix would be to keep track of the
           // metrics added by each attempt, but this is much more complicated.
           return
-        case e: ExceptionFailure =>
-          executorToTasksFailed(eid) = executorToTasksFailed.getOrElse(eid, 0) + 1
-        case _ =>
-          executorToTasksComplete(eid) = executorToTasksComplete.getOrElse(eid, 0) + 1
+        case e: ExceptionFailure => data.tasksFailed += 1
+        case _ => data.tasksComplete += 1
       }
 
-      executorToTasksActive(eid) = executorToTasksActive.getOrElse(eid, 1) - 1
-      executorToDuration(eid) = executorToDuration.getOrElse(eid, 0L) + info.duration
+      data.tasksActive -= 1
+      data.duration += info.duration
 
       // Update shuffle read/write
       val metrics = taskEnd.taskMetrics
       if (metrics != null) {
-        executorToInputBytes(eid) =
-          executorToInputBytes.getOrElse(eid, 0L) + metrics.inputMetrics.bytesRead
-        executorToInputRecords(eid) =
-          executorToInputRecords.getOrElse(eid, 0L) + metrics.inputMetrics.recordsRead
-        executorToOutputBytes(eid) =
-          executorToOutputBytes.getOrElse(eid, 0L) + metrics.outputMetrics.bytesWritten
-        executorToOutputRecords(eid) =
-          executorToOutputRecords.getOrElse(eid, 0L) + metrics.outputMetrics.recordsWritten
+        data.inputBytes += metrics.inputMetrics.bytesRead
+        data.inputRecords += metrics.inputMetrics.recordsRead
+        data.outputBytes += metrics.outputMetrics.bytesWritten
+        data.outputRecords += metrics.outputMetrics.recordsWritten
 
-        executorToShuffleRead(eid) =
-          executorToShuffleRead.getOrElse(eid, 0L) + metrics.shuffleReadMetrics.remoteBytesRead
-        executorToShuffleWrite(eid) =
-          executorToShuffleWrite.getOrElse(eid, 0L) + metrics.shuffleWriteMetrics.bytesWritten
-        executorToJvmGCTime(eid) = executorToJvmGCTime.getOrElse(eid, 0L) + metrics.jvmGCTime
+        data.shuffleRead += metrics.shuffleReadMetrics.remoteBytesRead
+        data.shuffleWrite += metrics.shuffleWriteMetrics.bytesWritten
+        data.jvmGCTime += metrics.jvmGCTime
       }
     }
   }
 
+}
+
+private[spark] final class ExecutorData {
+  var totalCores: Int = _
+  var tasksMax: Int = _
+  var tasksActive: Int = _
+  var tasksComplete: Int = _
+  var tasksFailed: Int = _
+  var duration: Long = _
+  var jvmGCTime: Long = _
+  var inputBytes: Long = _
+  var inputRecords: Long = _
+  var outputBytes: Long = _
+  var outputRecords: Long = _
+  var shuffleRead: Long = _
+  var shuffleWrite: Long = _
+  var logUrls: Map[String, String] = Map.empty
+  var uiData: ExecutorUIData = _
 }

@@ -27,8 +27,8 @@ import org.apache.commons.lang3.StringEscapeUtils
 
 import org.apache.spark.JobExecutionStatus
 import org.apache.spark.scheduler.StageInfo
+import org.apache.spark.ui.exec.ExecutorData
 import org.apache.spark.ui.{ToolTips, UIUtils, WebUIPage}
-import org.apache.spark.ui.jobs.UIData.ExecutorUIData
 
 /** Page showing statistics and stage list for a given job */
 private[ui] class JobPage(parent: JobsTab) extends WebUIPage("job") {
@@ -93,10 +93,11 @@ private[ui] class JobPage(parent: JobsTab) extends WebUIPage("job") {
     }
   }
 
-  def makeExecutorEvent(executorUIDatas: HashMap[String, ExecutorUIData]): Seq[String] = {
+  def makeExecutorEvent(executorUIDatas: HashMap[String, ExecutorData]): Seq[String] = {
     val events = ListBuffer[String]()
     executorUIDatas.foreach {
-      case (executorId, event) =>
+      case (executorId, data) if data.uiData != null =>
+        val event = data.uiData
         val addedEvent =
           s"""
              |{
@@ -141,7 +142,7 @@ private[ui] class JobPage(parent: JobsTab) extends WebUIPage("job") {
 
   private def makeTimeline(
       stages: Seq[StageInfo],
-      executors: HashMap[String, ExecutorUIData],
+      executors: HashMap[String, ExecutorData],
       appStartTime: Long): Seq[Node] = {
 
     val stageEventJsonAsStrSeq = makeStageEvent(stages)

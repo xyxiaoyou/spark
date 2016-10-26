@@ -49,12 +49,13 @@ private[spark] trait Logging {
     log_
   }
 
-  protected val debugEnabled = log.isDebugEnabled
-  protected val traceEnabled = log.isTraceEnabled
+  protected lazy val infoEnabled = log.isInfoEnabled
+  protected lazy val debugEnabled = log.isDebugEnabled
+  protected lazy val traceEnabled = log.isTraceEnabled
 
   // Log methods that take only a String
   protected def logInfo(msg: => String) {
-    if (log.isInfoEnabled) log.info(msg)
+    if (infoEnabled) log.info(msg)
   }
 
   protected def logDebug(msg: => String) {

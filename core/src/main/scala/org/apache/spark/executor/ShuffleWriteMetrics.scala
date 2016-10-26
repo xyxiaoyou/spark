@@ -20,6 +20,7 @@ package org.apache.spark.executor
 import com.esotericsoftware.kryo.io.{Input, Output}
 import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
 
+import org.apache.spark.TaskContext
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.util.LongAccumulator
 
@@ -67,9 +68,13 @@ class ShuffleWriteMetrics private[spark] () extends Serializable with KryoSerial
   }
 
   override def read(kryo: Kryo, input: Input): Unit = {
-    _bytesWritten.read(kryo, input)
-    _recordsWritten.read(kryo, input)
-    _writeTime.read(kryo, input)
+    read(kryo, input, context = null)
+  }
+
+  def read(kryo: Kryo, input: Input, context: TaskContext): Unit = {
+    _bytesWritten.read(kryo, input, context)
+    _recordsWritten.read(kryo, input, context)
+    _writeTime.read(kryo, input, context)
   }
 
   // Legacy methods for backward compatibility.

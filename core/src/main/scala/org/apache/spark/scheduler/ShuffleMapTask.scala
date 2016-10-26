@@ -22,7 +22,7 @@ import java.util.Properties
 
 import scala.language.existentials
 
-import com.esotericsoftware.kryo.Kryo
+import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
 import com.esotericsoftware.kryo.io.{Input, Output}
 
 import org.apache.spark._
@@ -58,7 +58,7 @@ private[spark] class ShuffleMapTask(
     localProperties: Properties)
   extends Task[MapStatus](stageId, stageAttemptId, partition.index,
     _taskBinaryBytes, _taskBinary, metrics, localProperties)
-  with Logging {
+  with KryoSerializable with Logging {
 
   /** A constructor used only in test suites. This does not require passing in an RDD. */
   def this(partitionId: Int) {
@@ -104,12 +104,12 @@ private[spark] class ShuffleMapTask(
   override def toString: String = "ShuffleMapTask(%d, %d)".format(stageId, partitionId)
 
   override def write(kryo: Kryo, output: Output): Unit = {
-    super.write(kryo, output)
+    super.writeKryo(kryo, output)
     kryo.writeClassAndObject(output, partition)
   }
 
   override def read(kryo: Kryo, input: Input): Unit = {
-    super.read(kryo, input)
+    super.readKryo(kryo, input)
     partition = kryo.readClassAndObject(input).asInstanceOf[Partition]
   }
 }

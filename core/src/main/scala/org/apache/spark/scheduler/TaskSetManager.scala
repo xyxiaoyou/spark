@@ -522,7 +522,7 @@ private[spark] class TaskSetManager(
             s" $taskLocality, ${serializedTask.limit} bytes)")
 
           sched.dagScheduler.taskStarted(task, info)
-          return Some(new TaskDescription(taskId = taskId, attemptNumber = attemptNum, execId,
+          return Some(new TaskDescription(_taskId = taskId, _attemptNumber = attemptNum, execId,
             taskName, index, serializedTask))
         case _ =>
       }
@@ -895,7 +895,6 @@ private[spark] class TaskSetManager(
   }
 
   private def getLocalityWait(level: TaskLocality.TaskLocality): Long = {
-    val defaultWait = conf.get("spark.locality.wait", "3s")
     val localityWaitKey = level match {
       case TaskLocality.PROCESS_LOCAL => "spark.locality.wait.process"
       case TaskLocality.NODE_LOCAL => "spark.locality.wait.node"
@@ -904,7 +903,13 @@ private[spark] class TaskSetManager(
     }
 
     if (localityWaitKey != null) {
-      conf.getTimeAsMs(localityWaitKey, defaultWait)
+      conf.getOption(localityWaitKey) match {
+        case None => conf.getOption("spark.locality.wait") match {
+          case None => 3000L // default wait is 3s
+          case Some(v) => Utils.timeStringAsMs(v)
+        }
+        case Some(v) => Utils.timeStringAsMs(v)
+      }
     } else {
       0L
     }
@@ -953,5 +958,5 @@ private[spark] class TaskSetManager(
 private[spark] object TaskSetManager {
   // The user will be warned if any stages contain a task that has a serialized size greater than
   // this.
-  val TASK_SIZE_TO_WARN_KB = 100
+  val TASK_SIZE_TO_WARN_KB = 128
 }

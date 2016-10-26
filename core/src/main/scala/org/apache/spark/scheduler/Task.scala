@@ -23,7 +23,7 @@ import java.util.Properties
 import scala.collection.mutable
 import scala.collection.mutable.HashMap
 
-import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
+import com.esotericsoftware.kryo.Kryo
 import com.esotericsoftware.kryo.io.{Input, Output}
 
 import org.apache.spark._
@@ -59,8 +59,7 @@ private[spark] abstract class Task[T](
     protected var taskBinaryBytes: Option[Array[Byte]] = None,
     protected var taskBinary: Option[Broadcast[Array[Byte]]] = None,
     private var _metrics: TaskMetrics = TaskMetrics.registered,
-    @transient var localProperties: Properties = new Properties) extends Serializable
-    with KryoSerializable {
+    @transient var localProperties: Properties = new Properties) extends Serializable {
 
   final def stageId: Int = _stageId
 
@@ -199,7 +198,7 @@ private[spark] abstract class Task[T](
     }
   }
 
-  override def write(kryo: Kryo, output: Output): Unit = {
+  protected def writeKryo(kryo: Kryo, output: Output): Unit = {
     output.writeInt(_stageId)
     output.writeVarInt(_stageAttemptId, true)
     output.writeVarInt(_partitionId, true)
@@ -217,7 +216,7 @@ private[spark] abstract class Task[T](
     _metrics.write(kryo, output)
   }
 
-  override def read(kryo: Kryo, input: Input): Unit = {
+  def readKryo(kryo: Kryo, input: Input): Unit = {
     _stageId = input.readInt()
     _stageAttemptId = input.readVarInt(true)
     _partitionId = input.readVarInt(true)
@@ -285,8 +284,9 @@ private[spark] object Task {
     dataOut.writeString(null)
 
     // Write the task itself and finish
-    val taskBytes = serializer.serialize(task)
-    Utils.writeByteBuffer(taskBytes, dataOut)
+    val stream = serializer.serializeStream(dataOut)
+    stream.writeObject(task)
+    stream.close()
     ByteBuffer.wrap(dataOut.toBytes)
   }
 
