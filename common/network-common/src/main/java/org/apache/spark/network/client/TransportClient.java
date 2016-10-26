@@ -43,7 +43,7 @@ import org.apache.spark.network.protocol.OneWayMessage;
 import org.apache.spark.network.protocol.RpcRequest;
 import org.apache.spark.network.protocol.StreamChunkId;
 import org.apache.spark.network.protocol.StreamRequest;
-import org.apache.spark.network.util.NettyUtils;
+import static org.apache.spark.network.util.NettyUtils.getRemoteAddress;
 
 /**
  * Client for fetching consecutive chunks of a pre-negotiated stream. This API is intended to allow
@@ -135,11 +135,10 @@ public class TransportClient implements Closeable {
       long streamId,
       final int chunkIndex,
       final ChunkReceivedCallback callback) {
-    final String serverAddr = NettyUtils.getRemoteAddress(channel);
     final boolean isTraceEnabled = logger.isTraceEnabled();
     final long startTime = isTraceEnabled ? System.currentTimeMillis() : 0L;
     if (logger.isDebugEnabled()) {
-      logger.debug("Sending fetch chunk request {} to {}", chunkIndex, serverAddr);
+      logger.debug("Sending fetch chunk request {} to {}", chunkIndex, getRemoteAddress(channel));
     }
 
     final StreamChunkId streamChunkId = new StreamChunkId(streamId, chunkIndex);
@@ -152,12 +151,12 @@ public class TransportClient implements Closeable {
           if (future.isSuccess()) {
             if (isTraceEnabled) {
               long timeTaken = System.currentTimeMillis() - startTime;
-              logger.trace("Sending request {} to {} took {} ms", streamChunkId, serverAddr,
-                  timeTaken);
+              logger.trace("Sending request {} to {} took {} ms", streamChunkId,
+                getRemoteAddress(channel), timeTaken);
             }
           } else {
             String errorMsg = String.format("Failed to send request %s to %s: %s", streamChunkId,
-              serverAddr, future.cause());
+              getRemoteAddress(channel), future.cause());
             logger.error(errorMsg, future.cause());
             handler.removeFetchRequest(streamChunkId);
             channel.close();
@@ -178,11 +177,10 @@ public class TransportClient implements Closeable {
    * @param callback Object to call with the stream data.
    */
   public void stream(final String streamId, final StreamCallback callback) {
-    final String serverAddr = NettyUtils.getRemoteAddress(channel);
     final boolean isTraceEnabled = logger.isTraceEnabled();
     final long startTime = isTraceEnabled ? System.currentTimeMillis() : 0L;
     if (logger.isDebugEnabled()) {
-      logger.debug("Sending stream request for {} to {}", streamId, serverAddr);
+      logger.debug("Sending stream request for {} to {}", streamId, getRemoteAddress(channel));
     }
 
     // Need to synchronize here so that the callback is added to the queue and the RPC is
@@ -197,12 +195,12 @@ public class TransportClient implements Closeable {
             if (future.isSuccess()) {
               if (isTraceEnabled) {
                 long timeTaken = System.currentTimeMillis() - startTime;
-                logger.trace("Sending request for {} to {} took {} ms", streamId, serverAddr,
-                    timeTaken);
+                logger.trace("Sending request for {} to {} took {} ms", streamId,
+                  getRemoteAddress(channel), timeTaken);
               }
             } else {
               String errorMsg = String.format("Failed to send request for %s to %s: %s", streamId,
-                serverAddr, future.cause());
+                getRemoteAddress(channel), future.cause());
               logger.error(errorMsg, future.cause());
               channel.close();
               try {
@@ -225,11 +223,10 @@ public class TransportClient implements Closeable {
    * @return The RPC's id.
    */
   public long sendRpc(ByteBuffer message, final RpcResponseCallback callback) {
-    final String serverAddr = NettyUtils.getRemoteAddress(channel);
     final boolean isTraceEnabled = logger.isTraceEnabled();
     final long startTime = isTraceEnabled ? System.currentTimeMillis() : 0L;
     if (isTraceEnabled) {
-      logger.trace("Sending RPC to {}", serverAddr);
+      logger.trace("Sending RPC to {}", getRemoteAddress(channel));
     }
 
     final long requestId = Math.abs(UUID.randomUUID().getLeastSignificantBits());
@@ -242,11 +239,12 @@ public class TransportClient implements Closeable {
           if (future.isSuccess()) {
             if (isTraceEnabled) {
               long timeTaken = System.currentTimeMillis() - startTime;
-              logger.trace("Sending request {} to {} took {} ms", requestId, serverAddr, timeTaken);
+              logger.trace("Sending request {} to {} took {} ms", requestId,
+                getRemoteAddress(channel), timeTaken);
             }
           } else {
             String errorMsg = String.format("Failed to send RPC %s to %s: %s", requestId,
-              serverAddr, future.cause());
+              getRemoteAddress(channel), future.cause());
             logger.error(errorMsg, future.cause());
             handler.removeRpcRequest(requestId);
             channel.close();
