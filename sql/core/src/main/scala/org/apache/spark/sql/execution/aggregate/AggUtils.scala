@@ -82,7 +82,7 @@ object AggUtils {
         aggregateExpressions = aggregateExpressions,
         aggregateAttributes = aggregateAttributes,
         initialInputBufferOffset = initialInputBufferOffset,
-        __resultExpressions = resultExpressions,
+        resultExpressions = resultExpressions,
         child = child)
     } else {
       val objectHashEnabled = child.sqlContext.conf.useObjectHashAggregation
