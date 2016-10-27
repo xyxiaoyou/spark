@@ -192,7 +192,7 @@ class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
   private[spark] var testAccum = if (TaskMetrics.sparkTesting) Some(new LongAccumulator) else None
 
 
-  @transient private val _internalAccums = {
+  private val _internalAccums = {
     val accums = Array(
       _executorDeserializeTime,
       _executorRunTime,
@@ -449,7 +449,7 @@ private[spark] class BlockStatusesAccumulator
     var index = 0
     while (index < len) {
       val (id, status) = _seq.get(index)
-      kryo.writeClassAndObject(output, id)
+      output.writeString(id.name)
       output.writeLong(status.memSize)
       output.writeLong(status.diskSize)
       val storageLevel = status.storageLevel
@@ -463,7 +463,7 @@ private[spark] class BlockStatusesAccumulator
     if (_seq.size() > 0) _seq.clear()
     var len = input.readVarInt(true)
     while (len > 0) {
-      val id = kryo.readClassAndObject(input).asInstanceOf[BlockId]
+      val id = BlockId(input.readString())
       val memSize = input.readLong()
       val diskSize = input.readLong()
       val levelFlags = input.readByte()
