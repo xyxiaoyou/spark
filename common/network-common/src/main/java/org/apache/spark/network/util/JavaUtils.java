@@ -176,12 +176,13 @@ public class JavaUtils {
       String suffix = m.group(2);
 
       // Check for invalid suffixes
-      if (suffix != null && (unit = timeSuffixes.get(suffix.toLowerCase())) == null) {
+      TimeUnit conv = unit;
+      if (suffix != null && (conv = timeSuffixes.get(suffix.toLowerCase())) == null) {
         throw new NumberFormatException("Invalid suffix: \"" + suffix + "\"");
       }
 
       // If suffix is valid use that, otherwise none was provided and use the default passed
-      return unit.convert(val, unit);
+      return unit.convert(val, conv);
     } catch (NumberFormatException e) {
       String timeError = "Time must be specified as seconds (s), " +
               "milliseconds (ms), microseconds (us), minutes (m or min), hour (h), or day (d). " +
@@ -226,12 +227,13 @@ public class JavaUtils {
         String suffix = m.group(2);
 
         // Check for invalid suffixes
-        if (suffix != null && (unit = byteSuffixes.get(suffix.toLowerCase())) == null) {
+        ByteUnit conv = unit;
+        if (suffix != null && (conv = byteSuffixes.get(suffix.toLowerCase())) == null) {
           throw new NumberFormatException("Invalid suffix: \"" + suffix + "\"");
         }
 
         // If suffix is valid use that, otherwise none was provided and use the default passed
-        return unit.convertFrom(val, unit);
+        return unit.convertFrom(val, conv);
       } else if ((fractionMatcher = fractionPattern.matcher(str)).matches()) {
         throw new NumberFormatException("Fractional values are not supported. Input was: "
           + fractionMatcher.group(1));
