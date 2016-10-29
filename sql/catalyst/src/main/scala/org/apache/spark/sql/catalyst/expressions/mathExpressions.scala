@@ -919,21 +919,43 @@ abstract class RoundBase(child: Expression, scale: Expression,
           s"${ev.value} = ${ce.value};"
         }
       case FloatType => // if child eval to NaN or Infinity, just return it.
-        s"""
-          if (Float.isNaN(${ce.value}) || Float.isInfinite(${ce.value})) {
-            ${ev.value} = ${ce.value};
-          } else {
-            ${ev.value} = java.math.BigDecimal.valueOf(${ce.value}).
-              setScale(${_scale}, java.math.BigDecimal.${modeStr}).floatValue();
-          }"""
+        if (_scale == 0 && mode == BigDecimal.RoundingMode.HALF_UP) {
+          s"""
+            if (Float.isNaN(${ce.value}) || Float.isInfinite(${ce.value})) {
+              ${ev.value} = ${ce.value};
+            } else if (${ce.value} >= 0) {
+              ${ev.value} = Math.round(${ce.value});
+            } else {
+              ${ev.value} = Math.round(-1.0f * ${ce.value}) * -1.0f;
+            }"""
+        } else {
+          s"""
+            if (Float.isNaN(${ce.value}) || Float.isInfinite(${ce.value})) {
+              ${ev.value} = ${ce.value};
+            } else {
+              ${ev.value} = java.math.BigDecimal.valueOf(${ce.value}).
+                setScale(${_scale}, java.math.BigDecimal.${modeStr}).floatValue();
+            }"""
+        }
       case DoubleType => // if child eval to NaN or Infinity, just return it.
-        s"""
-          if (Double.isNaN(${ce.value}) || Double.isInfinite(${ce.value})) {
-            ${ev.value} = ${ce.value};
-          } else {
-            ${ev.value} = java.math.BigDecimal.valueOf(${ce.value}).
-              setScale(${_scale}, java.math.BigDecimal.${modeStr}).doubleValue();
-          }"""
+        if (_scale == 0 && mode == BigDecimal.RoundingMode.HALF_UP) {
+          s"""
+            if (Double.isNaN(${ce.value}) || Double.isInfinite(${ce.value})) {
+              ${ev.value} = ${ce.value};
+            } else if (${ce.value} >= 0) {
+              ${ev.value} = Math.round(${ce.value});
+            } else {
+              ${ev.value} = Math.round(-1.0 * ${ce.value}) * -1.0;
+            }"""
+        } else {
+          s"""
+            if (Double.isNaN(${ce.value}) || Double.isInfinite(${ce.value})) {
+              ${ev.value} = ${ce.value};
+            } else {
+              ${ev.value} = java.math.BigDecimal.valueOf(${ce.value}).
+                setScale(${_scale}, java.math.BigDecimal.${modeStr}).doubleValue();
+            }"""
+        }
     }
 
     if (scaleV == null) { // if scale is null, no need to eval its child at all
