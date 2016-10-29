@@ -268,7 +268,7 @@ object WholeStageCodegenExec {
   val PIPELINE_DURATION_METRIC = "duration"
 
   def compressCode(source: CodeAndComment,
-      conf: SparkConf): (Array[Byte], Int) = {
+      sparkContext: SparkContext): (Array[Byte], Int) = {
     val initLen = source.body.length + source.comment.foldLeft(4) {
       case (s, (k, v)) => s + k.length + v.length + 8
     }
@@ -280,7 +280,7 @@ object WholeStageCodegenExec {
       out.writeString(k)
       out.writeString(v)
     }
-    val codec = CompressionCodec.createCodec(conf,
+    val codec = CompressionCodec.createCodec(sparkContext.conf,
       CompressionCodec.DEFAULT_COMPRESSION_CODEC)
     // Fastest way to compress/decompress is to avoid streaming
     // rather call on raw bytes after having written all data.
@@ -412,7 +412,7 @@ case class WholeStageCodegenExec(child: SparkPlan) extends UnaryExecNode with Co
 
     // code can be large so compress and ship
     val compressionOutput = WholeStageCodegenExec.compressCode(cleanedSource,
-      sparkContext.conf)
+      sparkContext)
     val rdds = child.asInstanceOf[CodegenSupport].inputRDDs()
     new WholeStageCodegenRDD(sqlContext.sparkContext, compressionOutput._1,
       compressionOutput._2, references, durationMs, rdds)

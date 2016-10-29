@@ -163,6 +163,7 @@ private[ui] class AllJobsPage(parent: JobsTab) extends WebUIPage("") {
              """.stripMargin
           events += removedEvent
         }
+      case _ =>
     }
     events.toSeq
   }

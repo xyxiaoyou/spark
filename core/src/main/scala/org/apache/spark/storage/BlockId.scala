@@ -54,7 +54,7 @@ sealed abstract class BlockId {
 @DeveloperApi
 case class RDDBlockId(var rddId: Int, var splitIndex: Int)
     extends BlockId with KryoSerializable {
-  override def name: String = "rdd_" + rddId + "_" + splitIndex
+  @transient override lazy val name: String = "rdd_" + rddId + "_" + splitIndex
 
   override def write(kryo: Kryo, output: Output): Unit = {
     output.writeInt(rddId)
