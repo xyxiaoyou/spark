@@ -140,9 +140,10 @@ private[spark] class Executor(
       taskId: Long,
       attemptNumber: Int,
       taskName: String,
-      serializedTask: ByteBuffer): Unit = {
-    val tr = new TaskRunner(context, taskId = taskId, attemptNumber = attemptNumber, taskName,
-      serializedTask)
+      serializedTask: ByteBuffer,
+      taskData: Array[Byte]): Unit = {
+    val tr = new TaskRunner(context, taskId = taskId, attemptNumber = attemptNumber,
+      taskName, serializedTask, taskData)
     runningTasks.put(taskId, tr)
     threadPool.execute(tr)
   }
@@ -189,7 +190,8 @@ private[spark] class Executor(
       val taskId: Long,
       val attemptNumber: Int,
       taskName: String,
-      serializedTask: ByteBuffer)
+      serializedTask: ByteBuffer,
+      taskData: Array[Byte])
     extends Runnable {
 
     /** Whether this task has been killed. */
@@ -251,6 +253,7 @@ private[spark] class Executor(
 
         updateDependencies(taskFiles, taskJars)
         task = ser.deserialize[Task[Any]](taskBytes, Thread.currentThread.getContextClassLoader)
+        task.taskData = taskData
         task.localProperties = taskProps
         task.setTaskMemoryManager(taskMemoryManager)
 

@@ -55,8 +55,8 @@ private[spark] abstract class Task[T](
     private var _stageId: Int,
     private var _stageAttemptId: Int,
     private var _partitionId: Int,
+    @transient private[spark] var taskData: Array[Byte] = Task.EMPTY,
     // The default value is only used in tests.
-    protected var taskBinaryBytes: Option[Array[Byte]] = None,
     protected var taskBinary: Option[Broadcast[Array[Byte]]] = None,
     private var _metrics: TaskMetrics = TaskMetrics.registered,
     @transient var localProperties: Properties = new Properties) extends Serializable {
@@ -204,14 +204,12 @@ private[spark] abstract class Task[T](
     output.writeVarInt(_partitionId, true)
     output.writeLong(epoch)
     output.writeLong(_executorDeserializeTime)
-    taskBinaryBytes match {
-      case Some(taskBytes) =>
-        val numBytes = taskBytes.length
-        output.writeVarInt(numBytes, true)
-        output.writeBytes(taskBytes, 0, numBytes)
-      case None =>
-        output.writeVarInt(0, true)
-        kryo.writeClassAndObject(output, taskBinary.get)
+    if (taskData.length != 0) {
+      // actual bytes will be shipped in TaskDescription
+      output.writeBoolean(true)
+    } else {
+      output.writeBoolean(false)
+      kryo.writeClassAndObject(output, taskBinary.get)
     }
     _metrics.write(kryo, output)
   }
@@ -222,17 +220,30 @@ private[spark] abstract class Task[T](
     _partitionId = input.readVarInt(true)
     epoch = input.readLong()
     _executorDeserializeTime = input.readLong()
-    val numBytes = input.readVarInt(true)
-    if (numBytes > 0) {
-      taskBinaryBytes = Some(input.readBytes(numBytes))
+    taskData = Task.EMPTY
+    if (input.readBoolean()) {
       taskBinary = None
     } else {
-      taskBinaryBytes = None
       taskBinary = Some(kryo.readClassAndObject(input)
           .asInstanceOf[Broadcast[Array[Byte]]])
     }
     _metrics = new TaskMetrics
     _metrics.read(kryo, input)
+  }
+}
+
+private final class TaskOutput(initialCapacity: Int)
+    extends Output(initialCapacity, -1) {
+
+  def getCapacity: Int = capacity
+
+  def getAsByteBuffer: ByteBuffer = {
+    // if byte array is not wasting much of space, then wrap it and return
+    if ((capacity - position) <= initialCapacity) {
+      ByteBuffer.wrap(buffer, 0, position)
+    } else {
+      ByteBuffer.wrap(toBytes)
+    }
   }
 }
 
@@ -244,6 +255,9 @@ private[spark] abstract class Task[T](
  * first writing out its dependencies.
  */
 private[spark] object Task {
+
+  private[spark] val EMPTY = Array.empty[Byte]
+
   /**
    * Serialize a task and the current app dependencies (files and JARs added to the SparkContext)
    */
@@ -254,7 +268,7 @@ private[spark] object Task {
       serializer: SerializerInstance)
     : ByteBuffer = {
 
-    val dataOut = new Output(4096, -1)
+    val dataOut = new TaskOutput(4096)
 
     // Write currentFiles
     dataOut.writeVarInt(currentFiles.size, true)
@@ -287,7 +301,7 @@ private[spark] object Task {
     val stream = serializer.serializeStream(dataOut)
     stream.writeObject(task)
     stream.close()
-    ByteBuffer.wrap(dataOut.toBytes)
+    dataOut.getAsByteBuffer
   }
 
   /**

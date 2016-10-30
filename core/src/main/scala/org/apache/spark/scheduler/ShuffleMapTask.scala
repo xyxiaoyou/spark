@@ -50,19 +50,19 @@ import org.apache.spark.shuffle.ShuffleWriter
 private[spark] class ShuffleMapTask(
     stageId: Int,
     stageAttemptId: Int,
-    _taskBinaryBytes: Option[Array[Byte]],
+    _taskData: Array[Byte],
     _taskBinary: Option[Broadcast[Array[Byte]]],
     private var partition: Partition,
     @transient private var locs: Seq[TaskLocation],
     metrics: TaskMetrics,
     localProperties: Properties)
   extends Task[MapStatus](stageId, stageAttemptId, partition.index,
-    _taskBinaryBytes, _taskBinary, metrics, localProperties)
+    _taskData, _taskBinary, metrics, localProperties)
   with KryoSerializable with Logging {
 
   /** A constructor used only in test suites. This does not require passing in an RDD. */
   def this(partitionId: Int) {
-    this(0, 0, null, null, new Partition { override def index: Int = 0 },
+    this(0, 0, Task.EMPTY, null, new Partition { override def index: Int = 0 },
       null, null, new Properties)
   }
 
@@ -74,7 +74,7 @@ private[spark] class ShuffleMapTask(
     // Deserialize the RDD using the broadcast variable.
     val deserializeStartTime = System.nanoTime()
     val ser = SparkEnv.get.closureSerializer.newInstance()
-    val taskBytes = taskBinaryBytes.getOrElse(taskBinary.get.value)
+    val taskBytes = if (taskData.length > 0) taskData else taskBinary.get.value
     val (rdd, dep) = ser.deserialize[(RDD[_], ShuffleDependency[_, _, _])](
       ByteBuffer.wrap(taskBytes), Thread.currentThread.getContextClassLoader)
     _executorDeserializeTime = math.max(System.nanoTime() - deserializeStartTime, 0L)

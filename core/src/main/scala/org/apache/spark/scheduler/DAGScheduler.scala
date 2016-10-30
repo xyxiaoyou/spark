@@ -995,7 +995,7 @@ class DAGScheduler(
     // might modify state of objects referenced in their closures. This is necessary in Hadoop
     // where the JobConf/Configuration object is not thread-safe.
     var taskBinary: Option[Broadcast[Array[Byte]]] = None
-    var taskRawBinary: Option[Array[Byte]] = None
+    var taskData: Array[Byte] = Task.EMPTY
     try {
       // For ShuffleMapTask, serialize and broadcast (rdd, shuffleDep).
       // For ResultTask, serialize and broadcast (rdd, func).
@@ -1016,7 +1016,7 @@ class DAGScheduler(
 
       // use direct byte shipping for small size or if small number of partitions
       if (taskBinaryBytes.length <= 32 * 1024 || stage.rdd.getNumPartitions <= 10) {
-        taskRawBinary = Some(taskBinaryBytes)
+        taskData = taskBinaryBytes
       } else {
         taskBinary = Some(sc.broadcast(taskBinaryBytes))
       }
@@ -1040,7 +1040,7 @@ class DAGScheduler(
           partitionsToCompute.map { id =>
             val locs = taskIdToLocations(id)
             val part = stage.rdd.partitions(id)
-            new ShuffleMapTask(stage.id, stage.latestInfo.attemptId, taskRawBinary,
+            new ShuffleMapTask(stage.id, stage.latestInfo.attemptId, taskData,
               taskBinary, part, locs, stage.latestInfo.taskMetrics, properties)
           }
 
@@ -1050,7 +1050,7 @@ class DAGScheduler(
             val p: Int = stage.partitions(id)
             val part = stage.rdd.partitions(p)
             val locs = taskIdToLocations(id)
-            new ResultTask(stage.id, stage.latestInfo.attemptId, taskRawBinary,
+            new ResultTask(stage.id, stage.latestInfo.attemptId, taskData,
               taskBinary, part, locs, id, properties, stage.latestInfo.taskMetrics)
           }
       }

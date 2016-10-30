@@ -22,17 +22,24 @@ import java.nio.ByteBuffer
 import org.apache.mesos.protobuf.ByteString
 
 import org.apache.spark.internal.Logging
+import org.apache.spark.scheduler.Task
 
 /**
  * Wrapper for serializing the data sent when launching Mesos tasks.
  */
 private[spark] case class MesosTaskLaunchData(
   serializedTask: ByteBuffer,
+  taskData: Array[Byte],
   attemptNumber: Int) extends Logging {
 
   def toByteString: ByteString = {
-    val dataBuffer = ByteBuffer.allocate(4 + serializedTask.limit)
+    val dataBuffer = ByteBuffer.allocate(4 + serializedTask.limit + taskData.length)
     dataBuffer.putInt(attemptNumber)
+    val dataLen = taskData.length
+    dataBuffer.putInt(dataLen)
+    if (dataLen > 0) {
+      dataBuffer.put(taskData)
+    }
     dataBuffer.put(serializedTask)
     dataBuffer.rewind
     logDebug(s"ByteBuffer size: [${dataBuffer.remaining}]")
@@ -45,7 +52,13 @@ private[spark] object MesosTaskLaunchData extends Logging {
     val byteBuffer = byteString.asReadOnlyByteBuffer()
     logDebug(s"ByteBuffer size: [${byteBuffer.remaining}]")
     val attemptNumber = byteBuffer.getInt // updates the position by 4 bytes
+    val dataLen = byteBuffer.getInt
+    val taskData = if (dataLen > 0) {
+      val taskData = new Array[Byte](dataLen)
+      byteBuffer.get(taskData)
+      taskData
+    } else Task.EMPTY
     val serializedTask = byteBuffer.slice() // subsequence starting at the current position
-    MesosTaskLaunchData(serializedTask, attemptNumber)
+    MesosTaskLaunchData(serializedTask, taskData, attemptNumber)
   }
 }

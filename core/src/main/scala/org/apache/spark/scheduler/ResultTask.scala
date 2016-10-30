@@ -49,7 +49,7 @@ import org.apache.spark.rdd.RDD
 private[spark] class ResultTask[T, U](
     stageId: Int,
     stageAttemptId: Int,
-    _taskBinaryBytes: Option[Array[Byte]],
+    _taskData: Array[Byte],
     _taskBinary: Option[Broadcast[Array[Byte]]],
     private var partition: Partition,
     locs: Seq[TaskLocation],
@@ -57,7 +57,7 @@ private[spark] class ResultTask[T, U](
     localProperties: Properties,
     metrics: TaskMetrics)
   extends Task[U](stageId, stageAttemptId, partition.index,
-    _taskBinaryBytes, _taskBinary, metrics, localProperties)
+    _taskData, _taskBinary, metrics, localProperties)
   with Serializable with KryoSerializable {
 
   final def outputId: Int = _outputId
@@ -70,7 +70,7 @@ private[spark] class ResultTask[T, U](
     // Deserialize the RDD and the func using the broadcast variables.
     val deserializeStartTime = System.nanoTime()
     val ser = SparkEnv.get.closureSerializer.newInstance()
-    val taskBytes = taskBinaryBytes.getOrElse(taskBinary.get.value)
+    val taskBytes = if (taskData.length > 0) taskData else taskBinary.get.value
     val (rdd, func) = ser.deserialize[(RDD[T], (TaskContext, Iterator[T]) => U)](
       ByteBuffer.wrap(taskBytes), Thread.currentThread.getContextClassLoader)
     _executorDeserializeTime = math.max(System.nanoTime() - deserializeStartTime, 0L)

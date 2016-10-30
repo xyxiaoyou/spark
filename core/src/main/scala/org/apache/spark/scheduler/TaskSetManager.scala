@@ -523,7 +523,7 @@ private[spark] class TaskSetManager(
 
           sched.dagScheduler.taskStarted(task, info)
           return Some(new TaskDescription(_taskId = taskId, _attemptNumber = attemptNum, execId,
-            taskName, index, serializedTask))
+            taskName, index, serializedTask, task.taskData))
         case _ =>
       }
     }

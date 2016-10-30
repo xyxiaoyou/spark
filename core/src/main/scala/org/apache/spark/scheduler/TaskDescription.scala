@@ -34,7 +34,9 @@ private[spark] class TaskDescription(
     private var _executorId: String,
     private var _name: String,
     private var _index: Int,    // Index within this task's TaskSet
-    @transient private var _serializedTask: ByteBuffer)
+    @transient private var _serializedTask: ByteBuffer,
+    private[spark] var taskData: Array[Byte] = Task.EMPTY,
+    private[spark] var taskDataReference: Int = -1)
   extends Serializable with KryoSerializable {
 
   def taskId: Long = _taskId
@@ -58,6 +60,15 @@ private[spark] class TaskDescription(
     output.writeInt(_index)
     output.writeInt(_serializedTask.remaining())
     Utils.writeByteBuffer(_serializedTask, output)
+    val dataLen = taskData.length
+    if (dataLen > 0) {
+      output.writeVarInt(dataLen, true)
+      output.writeBytes(taskData)
+    } else {
+      assert(taskDataReference >= 0)
+      output.writeVarInt(0, true)
+      output.writeVarInt(taskDataReference, true)
+    }
   }
 
   override def read(kryo: Kryo, input: Input): Unit = {
@@ -68,6 +79,14 @@ private[spark] class TaskDescription(
     _index = input.readInt()
     val len = input.readInt()
     _serializedTask = ByteBuffer.wrap(input.readBytes(len))
+    val dataLen = input.readVarInt(true)
+    if (dataLen > 0) {
+      taskData = input.readBytes(dataLen)
+      taskDataReference = -1
+    } else {
+      taskData = Task.EMPTY
+      taskDataReference = input.readVarInt(true)
+    }
   }
 
   override def toString: String = "TaskDescription(TID=%d, index=%d)".format(taskId, index)
