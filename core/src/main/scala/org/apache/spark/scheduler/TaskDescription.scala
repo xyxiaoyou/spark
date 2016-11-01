@@ -65,9 +65,8 @@ private[spark] class TaskDescription(
       output.writeVarInt(dataLen, true)
       output.writeBytes(taskData)
     } else {
-      assert(taskDataReference >= 0)
       output.writeVarInt(0, true)
-      output.writeVarInt(taskDataReference, true)
+      output.writeVarInt(taskDataReference, false)
     }
   }
 
@@ -85,7 +84,7 @@ private[spark] class TaskDescription(
       taskDataReference = -1
     } else {
       taskData = Task.EMPTY
-      taskDataReference = input.readVarInt(true)
+      taskDataReference = input.readVarInt(false)
     }
   }
 
