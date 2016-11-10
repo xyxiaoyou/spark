@@ -62,7 +62,7 @@ class ExecutorsListener(storageStatusListener: StorageStatusListener, conf: Spar
     data.logUrls = executorAdded.executorInfo.logUrlMap
     data.totalCores = executorAdded.executorInfo.totalCores
     data.tasksMax = data.totalCores / conf.getInt("spark.task.cpus", 1)
-    data.uiData = new ExecutorUIData(executorAdded.time)
+    data.uiData.startTime = executorAdded.time
   }
 
   override def onExecutorRemoved(
@@ -140,5 +140,5 @@ private[spark] final class ExecutorData {
   var shuffleRead: Long = _
   var shuffleWrite: Long = _
   var logUrls: Map[String, String] = Map.empty
-  var uiData: ExecutorUIData = _
+  val uiData: ExecutorUIData = new ExecutorUIData(0L)
 }

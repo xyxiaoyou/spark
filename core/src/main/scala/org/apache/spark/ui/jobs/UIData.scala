@@ -175,7 +175,7 @@ private[spark] object UIData {
   }
 
   class ExecutorUIData(
-      val startTime: Long,
+      var startTime: Long,
       var finishTime: Option[Long] = None,
       var finishReason: Option[String] = None)
 
