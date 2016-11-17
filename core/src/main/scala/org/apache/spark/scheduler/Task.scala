@@ -23,7 +23,7 @@ import java.util.Properties
 import scala.collection.mutable
 import scala.collection.mutable.HashMap
 
-import com.esotericsoftware.kryo.{KryoSerializable, Kryo}
+import com.esotericsoftware.kryo.Kryo
 import com.esotericsoftware.kryo.io.{Input, Output}
 
 import org.apache.spark._
@@ -72,8 +72,7 @@ private[spark] abstract class Task[T](
       SparkEnv.get.closureSerializer.newInstance().serialize(TaskMetrics.registered).array(),
     val jobId: Option[Int] = None,
     val appId: Option[String] = None,
-    val appAttemptId: Option[String] = None) extends Serializable
-    with KryoSerializable {
+    val appAttemptId: Option[String] = None) extends Serializable {
 
   final def stageId: Int = _stageId
 

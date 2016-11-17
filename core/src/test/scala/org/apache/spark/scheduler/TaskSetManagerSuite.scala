@@ -27,6 +27,9 @@ import org.mockito.Mockito.{mock, never, spy, times, verify, when}
 import org.mockito.invocation.InvocationOnMock
 import org.mockito.stubbing.Answer
 
+import com.esotericsoftware.kryo.Kryo
+import com.esotericsoftware.kryo.io.{Output, Input}
+
 import org.apache.spark._
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config
