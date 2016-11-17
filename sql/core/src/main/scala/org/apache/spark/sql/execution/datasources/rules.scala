@@ -17,11 +17,8 @@
 
 package org.apache.spark.sql.execution.datasources
 
-import java.util.regex.Pattern
-
 import scala.util.control.NonFatal
 
-import org.apache.spark.sql.{AnalysisException, SaveMode, SparkSession}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.analysis._
 import org.apache.spark.sql.catalyst.catalog.{BucketSpec, CatalogRelation, CatalogTable, SessionCatalog}
@@ -33,6 +30,7 @@ import org.apache.spark.sql.execution.command.DDLUtils
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.{BaseRelation, InsertableRelation}
 import org.apache.spark.sql.types.{AtomicType, StructType}
+import org.apache.spark.sql.{AnalysisException, SaveMode, SparkSession}
 
 /**
  * Try to replaces [[UnresolvedRelation]]s with [[ResolveDataSource]].
@@ -204,7 +202,8 @@ case class AnalyzeCreateTable(sparkSession: SparkSession) extends Rule[LogicalPl
  * table. It also does data type casting and field renaming, to make sure that the columns to be
  * inserted have the correct data type and fields have the correct names.
  */
-case class PreprocessTableInsertion(conf: SQLConf) extends Rule[LogicalPlan] {
+case class
+PreprocessTableInsertion(conf: SQLConf) extends Rule[LogicalPlan] {
   private def preprocess(
       insert: InsertIntoTable,
       tblName: String,

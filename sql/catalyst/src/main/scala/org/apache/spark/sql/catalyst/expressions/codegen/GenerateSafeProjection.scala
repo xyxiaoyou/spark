@@ -64,11 +64,10 @@ object GenerateSafeProjection extends CodeGenerator[Seq[Expression], Projection]
       }
       !broken
     }
-
-    val allFields =  if (isHomogenousStruct) {
+    val allFields = if (isHomogenousStruct){
       val counter = ctx.freshName("counter")
-      val converter = convertToSafe(ctx, ctx.getValue(tmp,
-        schema.fields(0).dataType, counter), schema.fields(0).dataType)
+      val converter = convertToSafe(ctx, ctx.getValue(tmp, schema.fields(0).dataType, counter),
+        schema.fields(0).dataType)
       s"""
           for(int $counter = 0; $counter < ${schema.length}; ++$counter) {
            if (!$tmp.isNullAt($counter)) {

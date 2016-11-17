@@ -99,7 +99,7 @@ case class InterpretedMutableProjection(expressions: Seq[Expression]) extends Mu
   private[this] var mutableRow: InternalRow = new GenericInternalRow(exprArray.length)
   def currentValue: InternalRow = mutableRow
 
-  override def target(row: MutableRow): MutableProjection = {
+  override def target(row: InternalRow): MutableProjection = {
     mutableRow = row
     targetUnsafe = row match {
       case _: UnsafeRow =>

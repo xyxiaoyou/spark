@@ -22,6 +22,8 @@ import java.util.Random
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
+import com.esotericsoftware.kryo.Kryo
+import com.esotericsoftware.kryo.io.{Output, Input}
 import org.mockito.Mockito.{mock, verify}
 
 import org.apache.spark._

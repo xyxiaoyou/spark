@@ -56,10 +56,6 @@ object SQLConf {
 
   }
 
-  val WAREHOUSE_PATH = SQLConfigBuilder("spark.sql.warehouse.dir")
-    .doc("The default location for managed databases and tables.")
-    .stringConf
-    .createWithDefault("file:${system:user.dir}/spark-warehouse")
 
   val OPTIMIZER_MAX_ITERATIONS = SQLConfigBuilder("spark.sql.optimizer.maxIterations")
     .internal()
@@ -508,6 +504,17 @@ object SQLConf {
       .doc("Deprecated: The maximum replacements the substitution engine will do.")
       .intConf
       .createWithDefault(40)
+
+  val VECTORIZED_AGG_MAP_MAX_COLUMNS =
+    SQLConfigBuilder("spark.sql.codegen.aggregate.map.columns.max")
+        .internal()
+        .doc("Sets the maximum width of schema (aggregate keys + values) for " +
+            "which aggregate with" +
+            "keys uses an in-memory columnar map to speed up execution. " +
+            "Setting this to 0 effectively" +
+            "disables the columnar map")
+        .intConf
+        .createWithDefault(3)
 
   val ENABLE_TWOLEVEL_AGG_MAP =
     SQLConfigBuilder("spark.sql.codegen.aggregate.map.twolevel.enable")

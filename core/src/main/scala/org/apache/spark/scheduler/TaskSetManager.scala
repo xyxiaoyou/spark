@@ -321,9 +321,7 @@ private[spark] class TaskSetManager(
 
       // Check for node-local tasks
       if (TaskLocality.isAllowed(locality, TaskLocality.NODE_LOCAL)) {
-        for (index <- speculatableTasks if canRunOnHost(index) &&
-            // don't return executor-local tasks that are still alive
-            canRunOnExecutor(execId, index)) {
+        for (index <- speculatableTasks if canRunOnHost(index)) {
           val locations = tasks(index).preferredLocations.map(_.host)
           if (locations.contains(host)) {
             speculatableTasks -= index
@@ -346,9 +344,7 @@ private[spark] class TaskSetManager(
       // Check for rack-local tasks
       if (TaskLocality.isAllowed(locality, TaskLocality.RACK_LOCAL)) {
         for (rack <- sched.getRackForHost(host)) {
-          for (index <- speculatableTasks if canRunOnHost(index)
-            // don't return executor-local tasks that are still alive
-            if canRunOnExecutor(execId, index)) {
+          for (index <- speculatableTasks if canRunOnHost(index)) {
             val racks = tasks(index).preferredLocations.map(_.host).flatMap(sched.getRackForHost)
             if (racks.contains(rack)) {
               speculatableTasks -= index
@@ -360,9 +356,7 @@ private[spark] class TaskSetManager(
 
       // Check for non-local tasks
       if (TaskLocality.isAllowed(locality, TaskLocality.ANY)) {
-        for (index <- speculatableTasks if canRunOnHost(index) &&
-            // don't return executor-local tasks that are still alive
-            canRunOnExecutor(execId, index)) {
+        for (index <- speculatableTasks if canRunOnHost(index)) {
           speculatableTasks -= index
           return Some((index, TaskLocality.ANY))
         }
@@ -372,34 +366,21 @@ private[spark] class TaskSetManager(
     None
   }
 
-  private def canRunOnExecutor(execId: String, taskId: Int): Boolean = {
-    val locations = tasks(taskId).preferredLocations
-    locations.isEmpty || locations.exists {
-      case e: ExecutorCacheTaskLocation => execId == e.executorId
-      case _ => false
-    } || locations.collectFirst {
-      case e: ExecutorCacheTaskLocation if sched.isExecutorAlive(e.executorId)
-          && !executorIsBlacklisted(e.executorId, taskId) => false
-    }.getOrElse(true)
-  }
-
   /**
-   * Dequeue a pending task for a given node and return its index and locality level.
-   * Only search for tasks matching the given locality constraint.
-   *
-   * @return An option containing (task index within the task set, locality, is speculative?)
-   */
+    * Dequeue a pending task for a given node and return its index and locality level.
+    * Only search for tasks matching the given locality constraint.
+    *
+    * @return An option containing (task index within the task set, locality, is speculative?)
+    */
   private def dequeueTask(execId: String, host: String, maxLocality: TaskLocality.Value)
-    : Option[(Int, TaskLocality.Value, Boolean)] =
+  : Option[(Int, TaskLocality.Value, Boolean)] =
   {
     for (index <- dequeueTaskFromList(execId, host, getPendingTasksForExecutor(execId))) {
       return Some((index, TaskLocality.PROCESS_LOCAL, false))
     }
 
     if (TaskLocality.isAllowed(maxLocality, TaskLocality.NODE_LOCAL)) {
-      for (index <- dequeueTaskFromList(execId, host, getPendingTasksForHost(host))
-        // don't return executor-local tasks that are still alive
-        if canRunOnExecutor(execId, index)) {
+      for (index <- dequeueTaskFromList(execId, host, getPendingTasksForHost(host))) {
         return Some((index, TaskLocality.NODE_LOCAL, false))
       }
     }
@@ -415,17 +396,13 @@ private[spark] class TaskSetManager(
       for {
         rack <- sched.getRackForHost(host)
         index <- dequeueTaskFromList(execId, host, getPendingTasksForRack(rack))
-        // don't return executor-local tasks that are still alive
-        if canRunOnExecutor(execId, index)
       } {
-          return Some((index, TaskLocality.RACK_LOCAL, false))
+        return Some((index, TaskLocality.RACK_LOCAL, false))
       }
     }
 
     if (TaskLocality.isAllowed(maxLocality, TaskLocality.ANY)) {
-      for (index <- dequeueTaskFromList(execId, host, allPendingTasks)
-        // don't return executor-local tasks that are still alive
-        if canRunOnExecutor(execId, index)) {
+      for (index <- dequeueTaskFromList(execId, host, allPendingTasks)) {
         return Some((index, TaskLocality.ANY, false))
       }
     }
