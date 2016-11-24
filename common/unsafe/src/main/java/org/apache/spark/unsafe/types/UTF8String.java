@@ -109,7 +109,24 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
    * Creates an UTF8String from String.
    */
   public static UTF8String fromString(String str) {
-    return str == null ? null : fromBytes(str.getBytes(StandardCharsets.UTF_8));
+    if (str != null) {
+      // optimistically assume ASCII
+      final int len = str.length();
+      final byte[] bytes = new byte[len];
+      for (int i = 0; i < len; i++) {
+        byte c = (byte)str.charAt(i);
+        if (c > 0) {
+          bytes[i] = c;
+        } else {
+          return fromBytes(str.getBytes(StandardCharsets.UTF_8));
+        }
+      }
+      final UTF8String s = fromAddress(bytes, Platform.BYTE_ARRAY_OFFSET, len);
+      s.isAscii = true;
+      return s;
+    } else {
+      return null;
+    }
   }
 
   /**
@@ -230,11 +247,13 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
    */
   public byte[] getBytes() {
     // avoid copy if `base` is `byte[]`
+    byte[] bytes;
+    final Object base = this.base;
     if (offset == BYTE_ARRAY_OFFSET && base instanceof byte[]
-      && ((byte[]) base).length == numBytes) {
-      return (byte[]) base;
+        && (bytes = (byte[])base).length == numBytes) {
+      return bytes;
     } else {
-      byte[] bytes = new byte[numBytes];
+      bytes = new byte[numBytes];
       copyMemory(base, offset, bytes, BYTE_ARRAY_OFFSET, numBytes);
       return bytes;
     }
@@ -831,11 +850,35 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
 
   @Override
   public UTF8String clone() {
-    return fromBytes(getBytes());
+    UTF8String newString = fromBytes(getBytes());
+    if (isAscii) {
+      newString.isAscii = true;
+    }
+    return newString;
+  }
+
+  public UTF8String cloneIfRequired() {
+    if (offset == BYTE_ARRAY_OFFSET &&
+        ((byte[])base).length == numBytes) {
+      return this;
+    } else {
+      final int numBytes = this.numBytes;
+      final byte[] bytes = new byte[numBytes];
+      copyMemory(base, offset, bytes, BYTE_ARRAY_OFFSET, numBytes);
+      UTF8String newString = fromAddress(bytes, BYTE_ARRAY_OFFSET, numBytes);
+      if (isAscii) {
+        newString.isAscii = true;
+      }
+      return newString;
+    }
   }
 
   @Override
   public int compareTo(@Nonnull final UTF8String other) {
+    return compare(other);
+  }
+
+  public int compare(final UTF8String other) {
     int len = Math.min(numBytes, other.numBytes);
     // TODO: compare 8 bytes as unsigned long
     for (int i = 0; i < len; i ++) {
@@ -846,10 +889,6 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
       }
     }
     return numBytes - other.numBytes;
-  }
-
-  public int compare(final UTF8String other) {
-    return compareTo(other);
   }
 
   @Override
