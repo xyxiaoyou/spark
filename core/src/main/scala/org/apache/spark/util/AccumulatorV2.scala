@@ -535,7 +535,9 @@ class CollectionAccumulator[T] extends AccumulatorV2Kryo[T, java.util.List[T]]
 
   override def copy(): CollectionAccumulator[T] = {
     val newAcc = new CollectionAccumulator[T]
-    newAcc._list.addAll(_list)
+    _list.synchronized {
+      newAcc._list.addAll(_list)
+    }
     newAcc
   }
 

@@ -17,8 +17,6 @@
 
 package org.apache.spark.executor
 
-import java.util.{ArrayList, Collections}
-
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 
@@ -30,7 +28,7 @@ import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.internal.Logging
 import org.apache.spark.scheduler.AccumulableInfo
 import org.apache.spark.storage.{BlockId, BlockStatus, StorageLevel}
-import org.apache.spark.util.{AccumulatorContext, AccumulatorMetadata, AccumulatorV2, AccumulatorV2Kryo, DoubleAccumulator, LongAccumulator}
+import org.apache.spark.util._
 
 
 /**
@@ -57,7 +55,7 @@ class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
   private val _memoryBytesSpilled = new LongAccumulator
   private val _diskBytesSpilled = new LongAccumulator
   private val _peakExecutionMemory = new LongAccumulator
-  private val _updatedBlockStatuses = new BlockStatusesAccumulator
+  private val _updatedBlockStatuses = new CollectionAccumulator[(BlockId, BlockStatus)]
 
   /**
    * Time taken on the executor to deserialize this task.
@@ -407,11 +405,11 @@ private[spark] object TaskMetrics extends Logging {
   }
 }
 
-
 private[spark] class BlockStatusesAccumulator
-  extends AccumulatorV2Kryo[(BlockId, BlockStatus), java.util.List[(BlockId, BlockStatus)]]
+  extends AccumulatorV2Kryo[(BlockId, BlockStatus), Seq[(BlockId, BlockStatus)]]
   with KryoSerializable {
-  private val _seq = Collections.synchronizedList(new ArrayList[(BlockId, BlockStatus)]())
+
+  private var _seq = ArrayBuffer.empty[(BlockId, BlockStatus)]
 
   override def isZero(): Boolean = _seq.isEmpty
 
@@ -419,36 +417,34 @@ private[spark] class BlockStatusesAccumulator
 
   override def copy(): BlockStatusesAccumulator = {
     val newAcc = new BlockStatusesAccumulator
-    newAcc._seq.addAll(_seq)
+    newAcc._seq = _seq.clone()
     newAcc
   }
 
   override def reset(): Unit = _seq.clear()
 
-  override def add(v: (BlockId, BlockStatus)): Unit = _seq.add(v)
+  override def add(v: (BlockId, BlockStatus)): Unit = _seq += v
 
-  override def merge(
-    other: AccumulatorV2[(BlockId, BlockStatus), java.util.List[(BlockId, BlockStatus)]]): Unit = {
-    other match {
-      case o: BlockStatusesAccumulator => _seq.addAll(o.value)
-      case _ => throw new UnsupportedOperationException(
-        s"Cannot merge ${this.getClass.getName} with ${other.getClass.getName}")
-    }
+  override def merge(other: AccumulatorV2[(BlockId, BlockStatus), Seq[(BlockId, BlockStatus)]])
+  : Unit = other match {
+    case o: BlockStatusesAccumulator => _seq ++= o.value
+    case _ => throw new UnsupportedOperationException(
+      s"Cannot merge ${this.getClass.getName} with ${other.getClass.getName}")
   }
 
-  override def value: java.util.List[(BlockId, BlockStatus)] = _seq
+  override def value: Seq[(BlockId, BlockStatus)] = _seq
 
-  def setValue(newValue: java.util.List[(BlockId, BlockStatus)]): Unit = {
+  def setValue(newValue: Seq[(BlockId, BlockStatus)]): Unit = {
     _seq.clear()
-    _seq.addAll(newValue)
+    _seq ++= newValue
   }
 
   override def writeKryo(kryo: Kryo, output: Output): Unit = {
-    val len = _seq.size()
+    val len = _seq.length
     output.writeVarInt(len, true)
     var index = 0
     while (index < len) {
-      val (id, status) = _seq.get(index)
+      val (id, status) = _seq(index)
       output.writeString(id.name)
       output.writeLong(status.memSize)
       output.writeLong(status.diskSize)
@@ -460,7 +456,7 @@ private[spark] class BlockStatusesAccumulator
   }
 
   override def readKryo(kryo: Kryo, input: Input): Unit = {
-    if (_seq.size() > 0) _seq.clear()
+    if (_seq.nonEmpty) _seq.clear()
     var len = input.readVarInt(true)
     while (len > 0) {
       val id = BlockId(input.readString())
@@ -470,7 +466,7 @@ private[spark] class BlockStatusesAccumulator
       val replication = input.readByte()
       val status = BlockStatus(StorageLevel(levelFlags, replication),
         memSize, diskSize)
-      _seq.add(id -> status)
+      _seq += id -> status
 
       len -= 1
     }
