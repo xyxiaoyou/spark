@@ -24,6 +24,9 @@ import java.util.Properties
 import scala.collection.mutable
 import scala.collection.mutable.HashMap
 
+import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
+import com.esotericsoftware.kryo.io.{Input, Output}
+
 import org.apache.spark._
 import org.apache.spark.executor.TaskMetrics
 import org.apache.spark.memory.{MemoryMode, TaskMemoryManager}
@@ -42,10 +45,10 @@ import org.apache.spark.util._
  * and sends the task output back to the driver application. A ShuffleMapTask executes the task
  * and divides the task output to multiple buckets (based on the task's partitioner).
  *
- * @param stageId id of the stage this task belongs to
- * @param stageAttemptId attempt id of the stage this task belongs to
- * @param partitionId index of the number in the RDD
- * @param metrics a `TaskMetrics` that is created at driver side and sent to executor side.
+ * @param _stageId id of the stage this task belongs to
+ * @param _stageAttemptId attempt id of the stage this task belongs to
+ * @param _partitionId index of the number in the RDD
+ * @param _metrics a [[TaskMetrics]] that is created at driver side and sent to executor side.
  * @param localProperties copy of thread-local properties set by the user on the driver side.
  *
  * The parameters below are optional:
@@ -54,15 +57,24 @@ import org.apache.spark.util._
  * @param appAttemptId attempt id of the app this task belongs to
  */
 private[spark] abstract class Task[T](
-    val stageId: Int,
-    val stageAttemptId: Int,
-    val partitionId: Int,
+    private var _stageId: Int,
+    private var _stageAttemptId: Int,
+    private var _partitionId: Int,
     // The default value is only used in tests.
-    val metrics: TaskMetrics = TaskMetrics.registered,
+    private var _metrics: TaskMetrics = TaskMetrics.registered,
     @transient var localProperties: Properties = new Properties,
     val jobId: Option[Int] = None,
     val appId: Option[String] = None,
-    val appAttemptId: Option[String] = None) extends Serializable {
+    val appAttemptId: Option[String] = None) extends Serializable
+    with KryoSerializable {
+
+  final def stageId: Int = _stageId
+
+  final def stageAttemptId: Int = _stageAttemptId
+
+  final def partitionId: Int = _partitionId
+
+  final def metrics: TaskMetrics = _metrics
 
   /**
    * Called by [[org.apache.spark.executor.Executor]] to run this task.
@@ -128,7 +140,7 @@ private[spark] abstract class Task[T](
     }
   }
 
-  private var taskMemoryManager: TaskMemoryManager = _
+  @transient private var taskMemoryManager: TaskMemoryManager = _
 
   def setTaskMemoryManager(taskMemoryManager: TaskMemoryManager): Unit = {
     this.taskMemoryManager = taskMemoryManager
@@ -198,6 +210,25 @@ private[spark] abstract class Task[T](
     if (interruptThread && taskThread != null) {
       taskThread.interrupt()
     }
+  }
+
+  override def write(kryo: Kryo, output: Output): Unit = {
+    output.writeInt(_stageId)
+    output.writeVarInt(_stageAttemptId, true)
+    output.writeVarInt(_partitionId, true)
+    output.writeLong(epoch)
+    output.writeLong(_executorDeserializeTime)
+    _metrics.write(kryo, output)
+  }
+
+  override def read(kryo: Kryo, input: Input): Unit = {
+    _stageId = input.readInt()
+    _stageAttemptId = input.readVarInt(true)
+    _partitionId = input.readVarInt(true)
+    epoch = input.readLong()
+    _executorDeserializeTime = input.readLong()
+    _metrics = new TaskMetrics
+    _metrics.read(kryo, input)
   }
 }
 
