@@ -397,7 +397,7 @@ private[spark] class TaskSetManager(
     }
 
     if (TaskLocality.isAllowed(maxLocality, TaskLocality.NODE_LOCAL)) {
-      for (index <- dequeueTaskFromList(execId, getPendingTasksForHost(host))
+      for (index <- dequeueTaskFromList(execId, host, getPendingTasksForHost(host))
         // don't return executor-local tasks that are still alive
         if canRunOnExecutor(execId, index)) {
         return Some((index, TaskLocality.NODE_LOCAL, false))
@@ -414,7 +414,7 @@ private[spark] class TaskSetManager(
     if (TaskLocality.isAllowed(maxLocality, TaskLocality.RACK_LOCAL)) {
       for {
         rack <- sched.getRackForHost(host)
-        index <- dequeueTaskFromList(execId, getPendingTasksForRack(rack))
+        index <- dequeueTaskFromList(execId, host, getPendingTasksForRack(rack))
         // don't return executor-local tasks that are still alive
         if canRunOnExecutor(execId, index)
       } {
@@ -423,7 +423,7 @@ private[spark] class TaskSetManager(
     }
 
     if (TaskLocality.isAllowed(maxLocality, TaskLocality.ANY)) {
-      for (index <- dequeueTaskFromList(execId, allPendingTasks)
+      for (index <- dequeueTaskFromList(execId, host, allPendingTasks)
         // don't return executor-local tasks that are still alive
         if canRunOnExecutor(execId, index)) {
         return Some((index, TaskLocality.ANY, false))
@@ -517,7 +517,7 @@ private[spark] class TaskSetManager(
           s"partition ${task.partitionId}, $taskLocality, ${serializedTask.limit} bytes)")
 
         sched.dagScheduler.taskStarted(task, info)
-        new TaskDescription(taskId = taskId, attemptNumber = attemptNum, execId,
+        new TaskDescription(_taskId = taskId, _attemptNumber = attemptNum, execId,
           taskName, index, serializedTask)
       }
     } else {
