@@ -307,7 +307,7 @@ private[spark] class Executor(
       Thread.currentThread.setName(threadName)
       val threadMXBean = ManagementFactory.getThreadMXBean
       val taskMemoryManager = new TaskMemoryManager(env.memoryManager, taskId)
-      val deserializeStartTime = System.currentTimeMillis()
+      val deserializeStartTime = System.nanoTime()
       val deserializeStartCpuTime = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
         threadMXBean.getCurrentThreadCpuTime
       } else 0L
@@ -351,7 +351,7 @@ private[spark] class Executor(
         }
 
         // Run the actual task and measure its runtime.
-        taskStart = System.currentTimeMillis()
+        taskStart = System.nanoTime()
         taskStartCpu = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
           threadMXBean.getCurrentThreadCpuTime
         } else 0L
@@ -395,7 +395,8 @@ private[spark] class Executor(
             s"unrecoverable fetch failures!  Most likely this means user code is incorrectly " +
             s"swallowing Spark's internal ${classOf[FetchFailedException]}", fetchFailure)
         }
-        val taskFinish = System.currentTimeMillis()
+
+        val taskFinish = System.nanoTime()
         val taskFinishCpu = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
           threadMXBean.getCurrentThreadCpuTime
         } else 0L
@@ -404,22 +405,24 @@ private[spark] class Executor(
         task.context.killTaskIfInterrupted()
 
         val resultSer = env.serializer.newInstance()
-        val beforeSerialization = System.currentTimeMillis()
+        val beforeSerialization = System.nanoTime()
         val valueBytes = resultSer.serialize(value)
-        val afterSerialization = System.currentTimeMillis()
+        val afterSerialization = System.nanoTime()
 
         // Deserialization happens in two parts: first, we deserialize a Task object, which
         // includes the Partition. Second, Task.run() deserializes the RDD and function to be run.
-        task.metrics.setExecutorDeserializeTime(
-          (taskStart - deserializeStartTime) + task.executorDeserializeTime)
+        task.metrics.setExecutorDeserializeTime(math.max(
+          taskStart - deserializeStartTime + task.executorDeserializeTime, 0L) / 1000000.0)
         task.metrics.setExecutorDeserializeCpuTime(
           (taskStartCpu - deserializeStartCpuTime) + task.executorDeserializeCpuTime)
         // We need to subtract Task.run()'s deserialization time to avoid double-counting
-        task.metrics.setExecutorRunTime((taskFinish - taskStart) - task.executorDeserializeTime)
+        task.metrics.setExecutorRunTime(math.max(
+          taskFinish - taskStart - task.executorDeserializeTime, 0L) / 1000000.0)
         task.metrics.setExecutorCpuTime(
           (taskFinishCpu - taskStartCpu) - task.executorDeserializeCpuTime)
         task.metrics.setJvmGCTime(computeTotalGcTime() - startGCTime)
-        task.metrics.setResultSerializationTime(afterSerialization - beforeSerialization)
+        task.metrics.setResultSerializationTime(math.max(
+          afterSerialization - beforeSerialization, 0L) / 1000000.0)
 
         // Expose task metrics using the Dropwizard metrics system.
         // Update task metrics counters
@@ -542,7 +545,8 @@ private[spark] class Executor(
             // Collect latest accumulator values to report back to the driver
             val accums: Seq[AccumulatorV2[_, _]] =
               if (task != null) {
-                task.metrics.setExecutorRunTime(System.currentTimeMillis() - taskStart)
+                task.metrics.setExecutorRunTime(
+                  math.max(System.nanoTime() - taskStart, 0L) / 1000000.0)
                 task.metrics.setJvmGCTime(computeTotalGcTime() - startGCTime)
                 task.collectAccumulatorUpdates(taskFailed = true)
               } else {
@@ -748,7 +752,8 @@ private[spark] class Executor(
    * Download any missing dependencies if we receive a new set of files and JARs from the
    * SparkContext. Also adds any new JARs we fetched to the class loader.
    */
-  protected def updateDependencies(newFiles: HashMap[String, Long], newJars: HashMap[String, Long]) {
+  protected def updateDependencies(newFiles: HashMap[String, Long],
+      newJars: HashMap[String, Long]) {
     lazy val hadoopConf = SparkHadoopUtil.get.newConfiguration(conf)
     synchronized {
       // Fetch missing dependencies

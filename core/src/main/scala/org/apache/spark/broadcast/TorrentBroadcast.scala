@@ -227,9 +227,10 @@ private[spark] class TorrentBroadcast[T: ClassTag](obj: T, id: Long)
             }
           case None =>
             logInfo("Started reading broadcast variable " + id)
-            val startTimeMs = System.currentTimeMillis()
+            val startTimeMs = if (isDebugEnabled) System.currentTimeMillis() else 0L
             val blocks = readBlocks()
-            logInfo("Reading broadcast variable " + id + " took" + Utils.getUsedTimeMs(startTimeMs))
+            if (isDebugEnabled) logDebug("Reading broadcast variable " + id + " took" +
+              Utils.getUsedTimeMs(startTimeMs))
 
             try {
               val obj = TorrentBroadcast.unBlockifyObject[T](
