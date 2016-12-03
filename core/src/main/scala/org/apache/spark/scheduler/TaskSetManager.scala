@@ -518,7 +518,7 @@ private[spark] class TaskSetManager(
 
         sched.dagScheduler.taskStarted(task, info)
         new TaskDescription(_taskId = taskId, _attemptNumber = attemptNum, execId,
-          taskName, index, serializedTask)
+          taskName, index, serializedTask, task.taskData)
       }
     } else {
       None
@@ -1018,5 +1018,5 @@ private[spark] class TaskSetManager(
 private[spark] object TaskSetManager {
   // The user will be warned if any stages contain a task that has a serialized size greater than
   // this.
-  val TASK_SIZE_TO_WARN_KB = 100
+  val TASK_SIZE_TO_WARN_KB = 128
 }
