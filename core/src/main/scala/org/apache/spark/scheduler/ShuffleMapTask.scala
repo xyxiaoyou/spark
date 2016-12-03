@@ -23,7 +23,7 @@ import java.util.Properties
 
 import scala.language.existentials
 
-import com.esotericsoftware.kryo.Kryo
+import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
 import com.esotericsoftware.kryo.io.{Input, Output}
 
 import org.apache.spark._
@@ -41,7 +41,9 @@ import org.apache.spark.shuffle.ShuffleWriter
  *
  * @param stageId id of the stage this task belongs to
  * @param stageAttemptId attempt id of the stage this task belongs to
- * @param taskBinary broadcast version of the RDD and the ShuffleDependency. Once deserialized,
+ * @param _taskData if serialized RDD and function are small, then it is compressed
+ *                  and sent with its original decompressed size
+ * @param _taskBinary broadcast version of the RDD and the ShuffleDependency. Once deserialized,
  *                   the type should be (RDD[_], ShuffleDependency[_, _, _]).
  * @param partition partition of the RDD this task is associated with
  * @param locs preferred task execution locations for locality scheduling
@@ -56,7 +58,8 @@ import org.apache.spark.shuffle.ShuffleWriter
 private[spark] class ShuffleMapTask(
     stageId: Int,
     stageAttemptId: Int,
-    private var taskBinary: Broadcast[Array[Byte]],
+    _taskData: TaskData,
+    _taskBinary: Option[Broadcast[Array[Byte]]],
     private var partition: Partition,
     @transient private var locs: Seq[TaskLocation],
     metrics: TaskMetrics,
@@ -64,13 +67,14 @@ private[spark] class ShuffleMapTask(
     jobId: Option[Int] = None,
     appId: Option[String] = None,
     appAttemptId: Option[String] = None)
-  extends Task[MapStatus](stageId, stageAttemptId, partition.index, metrics, localProperties, jobId,
-    appId, appAttemptId)
-  with Logging {
+  extends Task[MapStatus](stageId, stageAttemptId, partition.index, _taskData,
+    _taskBinary, metrics, localProperties, jobId, appId, appAttemptId)
+with KryoSerializable with Logging {
 
   /** A constructor used only in test suites. This does not require passing in an RDD. */
   def this(partitionId: Int) {
-    this(0, 0, null, new Partition { override def index: Int = 0 }, null, null, new Properties)
+    this(0, 0, TaskData.EMPTY, null, new Partition { override def index: Int = 0 },
+      null, null, new Properties)
   }
 
   @transient private val preferredLocs: Seq[TaskLocation] = {
@@ -86,7 +90,7 @@ private[spark] class ShuffleMapTask(
     } else 0L
     val ser = SparkEnv.get.closureSerializer.newInstance()
     val (rdd, dep) = ser.deserialize[(RDD[_], ShuffleDependency[_, _, _])](
-      ByteBuffer.wrap(taskBinary.value), Thread.currentThread.getContextClassLoader)
+      ByteBuffer.wrap(getTaskBytes), Thread.currentThread.getContextClassLoader)
     _executorDeserializeTime = math.max(System.nanoTime() - deserializeStartTime, 0L)
     _executorDeserializeCpuTime = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
       threadMXBean.getCurrentThreadCpuTime - deserializeStartCpuTime
@@ -117,14 +121,12 @@ private[spark] class ShuffleMapTask(
   override def toString: String = "ShuffleMapTask(%d, %d)".format(stageId, partitionId)
 
   override def write(kryo: Kryo, output: Output): Unit = {
-    super.write(kryo, output)
-    kryo.writeClassAndObject(output, taskBinary)
+    super.writeKryo(kryo, output)
     kryo.writeClassAndObject(output, partition)
   }
 
   override def read(kryo: Kryo, input: Input): Unit = {
-    super.read(kryo, input)
-    taskBinary = kryo.readClassAndObject(input).asInstanceOf[Broadcast[Array[Byte]]]
+    super.readKryo(kryo, input)
     partition = kryo.readClassAndObject(input).asInstanceOf[Partition]
   }
 }
