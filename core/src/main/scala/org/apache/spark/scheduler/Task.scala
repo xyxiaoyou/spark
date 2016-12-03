@@ -277,3 +277,157 @@ private[spark] abstract class Task[T](
     _metrics.read(kryo, input)
   }
 }
+
+/**
+ * Handles transmission of tasks and their dependencies, because this can be slightly tricky. We
+ * need to send the list of JARs and files added to the SparkContext with each task to ensure that
+ * worker nodes find out about it, but we can't make it part of the Task because the user's code in
+ * the task might depend on one of the JARs. Thus we serialize each task as multiple objects, by
+ * first writing out its dependencies.
+ */
+private[spark] object Task {
+  /**
+   * Serialize a task and the current app dependencies (files and JARs added to the SparkContext)
+   */
+  def serializeWithDependencies(
+      task: Task[_],
+      currentFiles: mutable.Map[String, Long],
+      currentJars: mutable.Map[String, Long],
+      serializer: SerializerInstance)
+    : ByteBuffer = {
+
+    val out = new ByteBufferOutputStream(4096)
+    val dataOut = new DataOutputStream(out)
+
+    // Write currentFiles
+    dataOut.writeInt(currentFiles.size)
+    for ((name, timestamp) <- currentFiles) {
+      dataOut.writeUTF(name)
+      dataOut.writeLong(timestamp)
+    }
+
+    // Write currentJars
+    dataOut.writeInt(currentJars.size)
+    for ((name, timestamp) <- currentJars) {
+      dataOut.writeUTF(name)
+      dataOut.writeLong(timestamp)
+    }
+
+    // Write the task properties separately so it is available before full task deserialization.
+    val propBytes = Utils.serialize(task.localProperties)
+    dataOut.writeInt(propBytes.length)
+    dataOut.write(propBytes)
+
+    // Write the task itself and finish
+    dataOut.flush()
+    val taskBytes = serializer.serialize(task)
+    Utils.writeByteBuffer(taskBytes, out)
+    out.close()
+    out.toByteBuffer
+  }
+
+  /**
+   * Deserialize the list of dependencies in a task serialized with serializeWithDependencies,
+   * and return the task itself as a serialized ByteBuffer. The caller can then update its
+   * ClassLoaders and deserialize the task.
+   *
+   * @return (taskFiles, taskJars, taskProps, taskBytes)
+   */
+  def deserializeWithDependencies(serializedTask: ByteBuffer)
+    : (HashMap[String, Long], HashMap[String, Long], Properties, ByteBuffer) = {
+
+    val in = new ByteBufferInputStream(serializedTask)
+    val dataIn = new DataInputStream(in)
+
+    // Read task's files
+    val taskFiles = new HashMap[String, Long]()
+    val numFiles = dataIn.readInt()
+    for (i <- 0 until numFiles) {
+      taskFiles(dataIn.readUTF()) = dataIn.readLong()
+    }
+
+    // Read task's JARs
+    val taskJars = new HashMap[String, Long]()
+    val numJars = dataIn.readInt()
+    for (i <- 0 until numJars) {
+      taskJars(dataIn.readUTF()) = dataIn.readLong()
+    }
+
+    val propLength = dataIn.readInt()
+    val propBytes = new Array[Byte](propLength)
+    dataIn.readFully(propBytes, 0, propLength)
+    val taskProps = Utils.deserialize[Properties](propBytes)
+
+    // Create a sub-buffer for the rest of the data, which is the serialized Task object
+    val subBuffer = serializedTask.slice()  // ByteBufferInputStream will have read just up to task
+    (taskFiles, taskJars, taskProps, subBuffer)
+  }
+}
+
+private[spark] final class TaskData private(var compressedBytes: Array[Byte],
+    var uncompressedLen: Int, var reference: Int) extends Serializable {
+
+  def this(compressedBytes: Array[Byte], uncompressedLen: Int) =
+    this(compressedBytes, uncompressedLen, TaskData.NO_REF)
+
+  @transient private var decompressed: Array[Byte] = _
+
+  /** decompress the common task data if present */
+  def decompress(env: SparkEnv = SparkEnv.get): Array[Byte] = {
+    if (uncompressedLen > 0) {
+      if (decompressed eq null) {
+        decompressed = env.createCompressionCodec.decompress(compressedBytes,
+          0, compressedBytes.length, uncompressedLen)
+      }
+      decompressed
+    } else TaskData.EMPTY_BYTES
+  }
+
+  override def hashCode(): Int = java.util.Arrays.hashCode(compressedBytes)
+
+  override def equals(obj: Any): Boolean = obj match {
+    case d: TaskData =>
+      uncompressedLen == d.uncompressedLen &&
+          reference == d.reference &&
+          java.util.Arrays.equals(compressedBytes, d.compressedBytes)
+    case _ => false
+  }
+}
+
+private[spark] object TaskData {
+
+  private val NO_REF: Int = -1
+  private val EMPTY_BYTES: Array[Byte] = Array.empty[Byte]
+  private val FIRST: TaskData = new TaskData(EMPTY_BYTES, 0, 0)
+  val EMPTY: TaskData = new TaskData(EMPTY_BYTES, 0, -2)
+
+  def apply(reference: Int): TaskData = {
+    if (reference == 0) FIRST
+    else if (reference > 0) new TaskData(EMPTY_BYTES, 0, reference)
+    else EMPTY
+  }
+
+  def write(data: TaskData, output: Output): Unit = Utils.tryOrIOException {
+    if (data.reference != NO_REF) {
+      output.writeVarInt(data.reference, false)
+    } else {
+      val bytes = data.compressedBytes
+      assert(bytes != null)
+      output.writeVarInt(NO_REF, false)
+      output.writeVarInt(data.uncompressedLen, true)
+      output.writeVarInt(bytes.length, true)
+      output.writeBytes(bytes)
+    }
+  }
+
+  def read(input: Input): TaskData = Utils.tryOrIOException {
+    val reference = input.readVarInt(false)
+    if (reference != NO_REF) {
+      TaskData(reference)
+    } else {
+      val uncompressedLen = input.readVarInt(true)
+      val bytesLen = input.readVarInt(true)
+      new TaskData(input.readBytes(bytesLen), uncompressedLen)
+    }
+  }
+}

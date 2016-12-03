@@ -644,7 +644,7 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
   protected def doRequestTotalExecutors(requestedTotal: Int): Future[Boolean] =
     Future.successful(false)
 
-  /**
+  /**W
    * Request that the cluster manager kill the specified executors.
    *
    * When asking the executor to be replaced, the executor loss is considered a failure, and
