@@ -25,7 +25,7 @@ import org.apache.spark.sql.functions.{avg, broadcast, col, max}
 import org.apache.spark.sql.test.SharedSQLContext
 import org.apache.spark.sql.types.{IntegerType, StringType, StructType}
 
-class WholeStageCodegenSuite extends SparkPlanTest with SharedSQLContext {
+class WholeWholeStageCodegenSuite extends SparkPlanTest with SharedSQLContext {
 
   test("range/filter should be combined") {
     val df = spark.range(10).filter("id = 1").selectExpr("id + 1")
