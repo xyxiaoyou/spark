@@ -64,6 +64,11 @@ final class SQLMetric(val metricType: String, initValue: Long = 0L)
 
   def set(v: Long): Unit = _value = v
 
+  // avoid the runtime generic Object conversion of add(), value()
+  final def addLong(v: Long): Unit = _value += v
+
+  final def longValue: Long = _value
+
   def +=(v: Long): Unit = _value += v
 
   override def value: Long = _value
