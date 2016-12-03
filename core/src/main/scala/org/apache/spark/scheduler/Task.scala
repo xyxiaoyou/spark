@@ -23,10 +23,11 @@ import java.util.Properties
 import scala.collection.mutable
 import scala.collection.mutable.HashMap
 
-import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
+import com.esotericsoftware.kryo.{KryoSerializable, Kryo}
 import com.esotericsoftware.kryo.io.{Input, Output}
 
 import org.apache.spark._
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.executor.TaskMetrics
 import org.apache.spark.internal.config.APP_CALLER_CONTEXT
 import org.apache.spark.memory.{MemoryMode, TaskMemoryManager}
@@ -61,7 +62,9 @@ private[spark] abstract class Task[T](
     private var _stageId: Int,
     private var _stageAttemptId: Int,
     private var _partitionId: Int,
+    @transient private[spark] var taskData: TaskData = TaskData.EMPTY,
     // The default value is only used in tests.
+    protected var taskBinary: Option[Broadcast[Array[Byte]]] = None,
     private var _metrics: TaskMetrics = TaskMetrics.registered,
     @transient var localProperties: Properties = new Properties,
     // The default value is only used in tests.
@@ -78,10 +81,15 @@ private[spark] abstract class Task[T](
 
   final def partitionId: Int = _partitionId
 
-  final def metrics: TaskMetrics = _metrics
-
   @transient lazy val metrics: TaskMetrics =
     SparkEnv.get.closureSerializer.newInstance().deserialize(ByteBuffer.wrap(serializedTaskMetrics))
+
+  @transient private[spark] var taskDataBytes: Array[Byte] = _
+
+  protected final def getTaskBytes: Array[Byte] = {
+    val bytes = taskDataBytes
+    if ((bytes ne null) && bytes.length > 0) bytes else taskBinary.get.value
+  }
 
   /**
    * Called by [[org.apache.spark.executor.Executor]] to run this task.
@@ -235,21 +243,36 @@ private[spark] abstract class Task[T](
     }
   }
 
-  override def write(kryo: Kryo, output: Output): Unit = {
+  protected def writeKryo(kryo: Kryo, output: Output): Unit = {
     output.writeInt(_stageId)
     output.writeVarInt(_stageAttemptId, true)
     output.writeVarInt(_partitionId, true)
     output.writeLong(epoch)
     output.writeLong(_executorDeserializeTime)
+    if ((taskData ne null) && taskData.uncompressedLen > 0) {
+      // actual bytes will be shipped in TaskDescription
+      output.writeBoolean(true)
+    } else {
+      output.writeBoolean(false)
+      kryo.writeClassAndObject(output, taskBinary.get)
+    }
     _metrics.write(kryo, output)
   }
 
-  override def read(kryo: Kryo, input: Input): Unit = {
+  def readKryo(kryo: Kryo, input: Input): Unit = {
     _stageId = input.readInt()
     _stageAttemptId = input.readVarInt(true)
     _partitionId = input.readVarInt(true)
     epoch = input.readLong()
     _executorDeserializeTime = input.readLong()
+    // actual bytes are shipped in TaskDescription
+    taskData = TaskData.EMPTY
+    if (input.readBoolean()) {
+      taskBinary = None
+    } else {
+      taskBinary = Some(kryo.readClassAndObject(input)
+          .asInstanceOf[Broadcast[Array[Byte]]])
+    }
     _metrics = new TaskMetrics
     _metrics.read(kryo, input)
   }

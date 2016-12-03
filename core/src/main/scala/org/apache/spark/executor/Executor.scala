@@ -246,7 +246,12 @@ private[spark] class Executor(
 
   class TaskRunner(
       execBackend: ExecutorBackend,
-      private val taskDescription: TaskDescription)
+      private val taskDescription: TaskDescription,
+      val taskId: Long,
+      val attemptNumber: Int,
+      taskName: String,
+      serializedTask: ByteBuffer,
+      taskDataBytes: Array[Byte])
     extends Runnable {
 
     val taskId = taskDescription.taskId
@@ -404,11 +409,6 @@ private[spark] class Executor(
         // If the task has been killed, let's fail it.
         task.context.killTaskIfInterrupted()
 
-        val resultSer = env.serializer.newInstance()
-        val beforeSerialization = System.nanoTime()
-        val valueBytes = resultSer.serialize(value)
-        val afterSerialization = System.nanoTime()
-
         // Deserialization happens in two parts: first, we deserialize a Task object, which
         // includes the Partition. Second, Task.run() deserializes the RDD and function to be run.
         task.metrics.setExecutorDeserializeTime(math.max(
@@ -421,8 +421,6 @@ private[spark] class Executor(
         task.metrics.setExecutorCpuTime(
           (taskFinishCpu - taskStartCpu) - task.executorDeserializeCpuTime)
         task.metrics.setJvmGCTime(computeTotalGcTime() - startGCTime)
-        task.metrics.setResultSerializationTime(math.max(
-          afterSerialization - beforeSerialization, 0L) / 1000000.0)
 
         // Expose task metrics using the Dropwizard metrics system.
         // Update task metrics counters
@@ -467,8 +465,8 @@ private[spark] class Executor(
 
         // Note: accumulator updates must be collected after TaskMetrics is updated
         val accumUpdates = task.collectAccumulatorUpdates()
-        // TODO: do not serialize value twice
-        val directResult = new DirectTaskResult(valueBytes, accumUpdates)
+        val directResult = new DirectTaskResult(value, accumUpdates,
+          Some(task.metrics.resultSerializationTimeMetric))
         val serializedDirectResult = ser.serialize(directResult)
         val resultSize = serializedDirectResult.limit()
 

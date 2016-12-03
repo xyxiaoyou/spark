@@ -1020,6 +1020,7 @@ class DAGScheduler(
     try {
       // For ShuffleMapTask, serialize and broadcast (rdd, shuffleDep).
       // For ResultTask, serialize and broadcast (rdd, func).
+<<<<<<< HEAD
       var taskBinaryBytes: Array[Byte] = null
       // taskBinaryBytes and partitions are both effected by the checkpoint status. We need
       // this synchronization in case another concurrent job is checkpointing this RDD, so we get a
@@ -1035,8 +1036,23 @@ class DAGScheduler(
 
         partitions = stage.rdd.partitions
       }
+      if (bytes == null) stage.taskBinaryBytes = taskBinaryBytes
 
-      taskBinary = sc.broadcast(taskBinaryBytes)
+      // use direct byte shipping for small size or if number of partitions is small
+      val taskBytesLen = taskBinaryBytes.length
+      if (taskBytesLen <= DAGScheduler.TASK_INLINE_LIMIT ||
+          partitionsToCompute.length <= DAGScheduler.TASK_INLINE_PARTITION_LIMIT) {
+        if (stage.taskData.uncompressedLen > 0) {
+          taskData = stage.taskData
+        } else {
+          // compress inline task data (broadcast compresses as per conf)
+          taskData = new TaskData(env.createCompressionCodec.compress(
+            taskBinaryBytes, taskBytesLen), taskBytesLen)
+          stage.taskData = taskData
+        }
+      } else {
+        taskBinary = Some(sc.broadcast(taskBinaryBytes))
+      }
     } catch {
       // In the case of a failure during serialization, abort the stage.
       case e: NotSerializableException =>
@@ -1545,7 +1561,7 @@ class DAGScheduler(
    * Marks a stage as finished and removes it from the list of running stages.
    */
   private def markStageAsFinished(stage: Stage, errorMessage: Option[String] = None): Unit = {
-    val serviceTime = stage.latestInfo.submissionTime match {
+    val serviceTime = if (!log.isInfoEnabled) 0L else stage.latestInfo.submissionTime match {
       case Some(t) => "%.03f".format((clock.getTimeMillis() - t) / 1000.0)
       case _ => "Unknown"
     }
@@ -1847,4 +1863,12 @@ private[spark] object DAGScheduler {
 
   // Number of consecutive stage attempts allowed before a stage is aborted
   val DEFAULT_MAX_CONSECUTIVE_STAGE_ATTEMPTS = 4
+
+  // The maximum size of uncompressed common task bytes (rdd, closure)
+  // that will be shipped with the task else will be broadcast separately.
+  val TASK_INLINE_LIMIT = 100 * 1024
+
+  // The maximum number of partitions below which common task bytes will be
+  // shipped with the task else will be broadcast separately.
+  val TASK_INLINE_PARTITION_LIMIT = 8
 }
