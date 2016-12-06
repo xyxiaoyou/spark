@@ -906,7 +906,6 @@ private[spark] object SparkSubmitUtils {
 
   /**
    * Represents a Maven Coordinate
-   *
    * @param groupId the groupId of the coordinate
    * @param artifactId the artifactId of the coordinate
    * @param version the version of the coordinate
@@ -918,7 +917,6 @@ private[spark] object SparkSubmitUtils {
 /**
  * Extracts maven coordinates from a comma-delimited string. Coordinates should be provided
  * in the format `groupId:artifactId:version` or `groupId/artifactId:version`.
- *
  * @param coordinates Comma-delimited string of maven coordinates
  * @return Sequence of Maven coordinates
  */
@@ -996,7 +994,6 @@ private[spark] object SparkSubmitUtils {
   /**
    * Output a comma-delimited list of paths for the downloaded jars to be added to the classpath
    * (will append to jars in SparkSubmit).
-   *
    * @param artifacts Sequence of dependencies that were resolved and retrieved
    * @param cacheDirectory directory where jars are cached
    * @return a comma-delimited list of paths for the dependencies
@@ -1134,7 +1131,6 @@ private[spark] object SparkSubmitUtils {
 
   /**
    * Resolves any dependencies that were supplied through maven coordinates
-   *
    * @param coordinates Comma-delimited string of maven coordinates
    * @param ivySettings An IvySettings containing resolvers to use
    * @param exclusions Exclusions to apply when resolving transitive dependencies
