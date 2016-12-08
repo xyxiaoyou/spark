@@ -19,6 +19,16 @@ package org.apache.spark.sql.execution
 
 import org.apache.spark.{broadcast, TaskContext}
 import org.apache.spark.rdd.RDD
+import com.esotericsoftware.kryo.io.{Input, Output}
+import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
+
+import org.apache.spark.{Partition, SparkContext, TaskContext, broadcast}
+import org.apache.spark.rdd.{RDD, ZippedPartitionsBaseRDD, ZippedPartitionsPartition}
+import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
+import com.esotericsoftware.kryo.io.{Input, Output}
+
+import org.apache.spark.{broadcast, Partition, SparkContext, TaskContext}
+import org.apache.spark.rdd.{RDD, ZippedPartitionsBaseRDD, ZippedPartitionsPartition}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen._
