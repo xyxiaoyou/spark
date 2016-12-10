@@ -214,6 +214,7 @@ object ShuffleExchangeExec {
           // `HashPartitioning.partitionIdExpression` to produce partitioning key.
           override def getPartition(key: Any): Int = key.asInstanceOf[Int]
         }
+      // case p@HashPartitioning(_, n) => new HashPartitioner(n, p.numBuckets)
       case RangePartitioning(sortingExpressions, numPartitions) =>
         // Internally, RangePartitioner runs a job on the RDD that samples keys to compute
         // partition bounds. To get accurate samples, we need to copy the mutable keys.
