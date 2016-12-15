@@ -232,22 +232,14 @@ private[spark] object UIUtils extends Logging {
           <div class="navbar-inner">
             <div class="product-brand">
               <a href={prependBaseUri("/")} class="brand">
-<<<<<<< HEAD
-                <img src={prependBaseUri("/static/snappydata/SnappyData-Logo-230X50.png")} />
+                <img src={prependBaseUri("/static/snappydata/pulse-snappydata-152X50.png")} />
                 <!-- <span class="version">{org.apache.spark.SPARK_VERSION}</span> -->
                 {getProductVersionNode}
-||||||| parent of c1b634f... Snap 1890 : Snappy Pulse UI suggestions for 1.0 (#69)
-                <img src={prependBaseUri("/static/snappydata/SnappyData-Logo-230X50.png")} />
-                {getProductUINameNode}
-                {getProductVersionNode}
-=======
-                <img src={prependBaseUri("/static/snappydata/pulse-snappydata-152X50.png")} />
               </a>
             </div>
             <div class="brand">
               <a href={prependBaseUri("/")} class="brand" style="float: left;">
                 <img src={prependBaseUri("/static/snappydata/snappydata-310X50.png")} />
->>>>>>> c1b634f... Snap 1890 : Snappy Pulse UI suggestions for 1.0 (#69)
               </a>
               {getProductVersionNode}
             </div>
@@ -299,22 +291,17 @@ private[spark] object UIUtils extends Logging {
           <div class="navbar-inner">
             <div class="product-brand">
               <a href={prependBaseUri("/")} class="brand">
-<<<<<<< HEAD
-                <img src={prependBaseUri("/static/snappydata/SnappyData-Logo-230X50.png")} />
-                <!-- <span class="version">{org.apache.spark.SPARK_VERSION}</span> -->
-                {getProductVersionNode}
-||||||| parent of c1b634f... Snap 1890 : Snappy Pulse UI suggestions for 1.0 (#69)
                 <img src={prependBaseUri("/static/snappydata/SnappyData-Logo-230X50.png")} />
                 {getProductUINameNode}
                 {getProductVersionNode}
-=======
                 <img src={prependBaseUri("/static/snappydata/pulse-snappydata-152X50.png")} />
               </a>
             </div>
             <div class="brand">
               <a href={prependBaseUri("/")} class="brand" style="float: left;">
                 <img src={prependBaseUri("/static/snappydata/snappydata-310X50.png")} />
->>>>>>> c1b634f... Snap 1890 : Snappy Pulse UI suggestions for 1.0 (#69)
+                <!-- <span class="version">{org.apache.spark.SPARK_VERSION}</span> -->
+                {getProductVersionNode}
               </a>
               {getProductVersionNode}
             </div>
