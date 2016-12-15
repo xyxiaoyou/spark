@@ -233,7 +233,8 @@ private[spark] object UIUtils extends Logging {
             <div class="brand">
               <a href={prependBaseUri("/")} class="brand">
                 <img src={prependBaseUri("/static/snappydata/SnappyData-Logo-230X50.png")} />
-                <span class="version">{org.apache.spark.SPARK_VERSION}</span>
+                <!-- <span class="version">{org.apache.spark.SPARK_VERSION}</span> -->
+                {getProductVersionNode}
               </a>
             </div>
             <p class="navbar-text pull-right">
@@ -287,7 +288,8 @@ private[spark] object UIUtils extends Logging {
             <div class="brand">
               <a href={prependBaseUri("/")} class="brand">
                 <img src={prependBaseUri("/static/snappydata/SnappyData-Logo-230X50.png")} />
-                <span class="version">{org.apache.spark.SPARK_VERSION}</span>
+                <!-- <span class="version">{org.apache.spark.SPARK_VERSION}</span> -->
+                {getProductVersionNode}
               </a>
             </div>
             <p class="navbar-text pull-right">
@@ -595,5 +597,13 @@ private[spark] object UIUtils extends Logging {
       StringEscapeUtils.escapeHtml4(
         NEWLINE_AND_SINGLE_QUOTE_REGEX.replaceAllIn(requestParameter, ""))
     }
+  }
+
+  def getProductVersionNode = {
+    val versionTooltipText =
+      "SnappyData Ver. " + SparkUI.getProductVersion + " ( Underlying Spark Ver. " + org.apache.spark.SPARK_VERSION + " )"
+
+    <span class="version" style="font-size: 14px;" data-toggle="tooltip" data-placement="bottom"
+          data-original-title={versionTooltipText} > {SparkUI.getProductVersion} </span>
   }
 }

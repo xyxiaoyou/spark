@@ -160,6 +160,16 @@ private[spark] object SparkUI {
   val STATIC_RESOURCE_DIR = "org/apache/spark/ui/static"
   val DEFAULT_POOL_NAME = "default"
 
+  var productVersion: String = new String()
+
+  def getProductVersion: String = {
+    productVersion
+  }
+
+  def setProductVersion(version: String): Unit = {
+    productVersion = version
+  }
+
   def getUIPort(conf: SparkConf): Int = {
     conf.getInt("spark.ui.port", SparkUI.DEFAULT_PORT)
   }
