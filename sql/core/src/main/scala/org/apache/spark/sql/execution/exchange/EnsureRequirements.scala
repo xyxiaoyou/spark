@@ -35,7 +35,7 @@ import org.apache.spark.sql.internal.SQLConf
  * the input partition ordering requirements are met.
  */
 case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
-  private lazy val defaultNumPreShufflePartitions: Int = conf.numShufflePartitions
+  private def defaultNumPreShufflePartitions: Int = conf.numShufflePartitions
 
   private def targetPostShuffleInputSize: Long = conf.targetPostShuffleInputSize
 
