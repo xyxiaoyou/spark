@@ -35,7 +35,7 @@ import org.apache.spark.sql.internal.SQLConf
  * the input partition ordering requirements are met.
  */
 case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
-  private def defaultNumPreShufflePartitions: Int = conf.numShufflePartitions
+  private lazy val defaultNumPreShufflePartitions: Int = conf.numShufflePartitions
 
   private def targetPostShuffleInputSize: Long = conf.targetPostShuffleInputSize
 
@@ -145,17 +145,19 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
     assert(requiredChildDistributions.length == children.length)
     assert(requiredChildOrderings.length == children.length)
 
-    // Ensure that the operator's children satisfy their output distribution requirements.
-    children = children.zip(requiredChildDistributions).map {
+    // Ensure that the operator's children satisfy their output distribution requirements:
+    // The second boolean parameter in the result is true when a ShuffleExchange
+    // was introduced to satisfy the output distribution.
+    val newChildren = children.zip(requiredChildDistributions).map {
       case (child, distribution) if child.outputPartitioning.satisfies(distribution) =>
-        child
+        (child, false)
       case (child, BroadcastDistribution(mode)) =>
-        BroadcastExchangeExec(mode, child)
+        (BroadcastExchangeExec(mode, child), false)
       case (child, distribution) =>
-        val numPartitions = distribution.requiredNumPartitions
-          .getOrElse(defaultNumPreShufflePartitions)
-        ShuffleExchangeExec(distribution.createPartitioning(numPartitions), child)
+        (ShuffleExchange(createPartitioning(distribution,
+          defaultNumPreShufflePartitions), child), true)
     }
+    children = newChildren.map(_._1)
 
     // Get the indexes of children which have specified distribution requirements and need to have
     // same number of partitions.
