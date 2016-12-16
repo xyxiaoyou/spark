@@ -574,9 +574,10 @@ private[spark] object UIUtils extends Logging {
     }
   }
 
-  def getProductVersionNode = {
+  def getProductVersionNode(): Unit = {
     val versionTooltipText =
-      "SnappyData Ver. " + SparkUI.getProductVersion + " ( Underlying Spark Ver. " + org.apache.spark.SPARK_VERSION + " )"
+      "SnappyData Ver. " + SparkUI.getProductVersion + " ( Underlying Spark Ver. " +
+          org.apache.spark.SPARK_VERSION + " )"
 
     <span class="version" style="font-size: 14px;" data-toggle="tooltip" data-placement="bottom"
           data-original-title={versionTooltipText} > {SparkUI.getProductVersion} </span>
