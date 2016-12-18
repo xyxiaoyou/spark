@@ -222,7 +222,7 @@ case object SinglePartition extends Partitioning {
  * than this partitioning then also it is considered equal.
  */
 case class OrderlessHashPartitioning(expressions: Seq[Expression],
-    aliases: Seq[Option[Attribute]], numPartitions: Int, numBuckets: Int)
+    aliases: Seq[Seq[Attribute]], numPartitions: Int, numBuckets: Int)
     extends Expression with Partitioning with Unevaluable {
 
 

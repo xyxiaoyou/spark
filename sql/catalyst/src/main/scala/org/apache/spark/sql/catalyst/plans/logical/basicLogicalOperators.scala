@@ -583,6 +583,15 @@ case class Aggregate(
     val nonAgg = aggregateExpressions.filter(_.find(_.isInstanceOf[AggregateExpression]).isEmpty)
     child.constraints.union(getAliasedConstraints(nonAgg))
   }
+
+  override lazy val statistics: Statistics = {
+    if (groupingExpressions.isEmpty) {
+      super.statistics.copy(sizeInBytes = 1)
+    } else {
+      val stats = super.statistics
+      stats.copy(sizeInBytes = stats.sizeInBytes / 2)
+    }
+  }
 }
 
 case class Window(
