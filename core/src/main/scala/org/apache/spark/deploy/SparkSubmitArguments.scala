@@ -72,7 +72,6 @@ private[deploy] class SparkSubmitArguments(args: Seq[String], env: Map[String, S
   var keytab: String = null
 
   // Kubernetes only
-  var kubernetesMaster: String = null
   var kubernetesNamespace: String = null
   var kubernetesUploadJars: String = null
   var kubernetesUploadDriverExtraClasspath: String = null
@@ -199,9 +198,6 @@ private[deploy] class SparkSubmitArguments(args: Seq[String], env: Map[String, S
     queue = Option(queue).orElse(sparkProperties.get("spark.yarn.queue")).orNull
     keytab = Option(keytab).orElse(sparkProperties.get("spark.yarn.keytab")).orNull
     principal = Option(principal).orElse(sparkProperties.get("spark.yarn.principal")).orNull
-    kubernetesMaster = Option(kubernetesMaster)
-      .orElse(sparkProperties.get("spark.kubernetes.master"))
-      .orNull
     kubernetesNamespace = Option(kubernetesNamespace)
       .orElse(sparkProperties.get("spark.kubernetes.namespace"))
       .orNull
@@ -448,9 +444,6 @@ private[deploy] class SparkSubmitArguments(args: Seq[String], env: Map[String, S
 
       case KEYTAB =>
         keytab = value
-
-      case KUBERNETES_MASTER =>
-        kubernetesMaster = value
 
       case KUBERNETES_NAMESPACE =>
         kubernetesNamespace = value
