@@ -965,6 +965,49 @@ object PushPredicateThroughJoin extends Rule[LogicalPlan] with PredicateHelper {
 }
 
 /**
+ * Removes [[Cast Casts]] that are unnecessary because the input is already the correct type.
+ */
+object SimplifyCasts extends Rule[LogicalPlan] {
+  def apply(plan: LogicalPlan): LogicalPlan = plan transformAllExpressions {
+    case Cast(e, dataType) if e.dataType == dataType ||
+      (e.dataType.getClass == dataType.getClass &&
+        e.dataType.asNullable == dataType) => e
+  }
+}
+
+/**
+ * Removes nodes that are not necessary.
+ */
+object RemoveDispensableExpressions extends Rule[LogicalPlan] {
+  def apply(plan: LogicalPlan): LogicalPlan = plan transformAllExpressions {
+    case UnaryPositive(child) => child
+    case PromotePrecision(child) => child
+  }
+}
+
+/**
+=======
+ * Removes [[Cast Casts]] that are unnecessary because the input is already the correct type.
+ */
+object SimplifyCasts extends Rule[LogicalPlan] {
+  def apply(plan: LogicalPlan): LogicalPlan = plan transformAllExpressions {
+    case Cast(e, dataType) if e.dataType == dataType ||
+        (e.dataType.getClass == dataType.getClass &&
+            e.dataType.asNullable == dataType) => e
+  }
+}
+
+/**
+ * Removes nodes that are not necessary.
+ */
+object RemoveDispensableExpressions extends Rule[LogicalPlan] {
+  def apply(plan: LogicalPlan): LogicalPlan = plan transformAllExpressions {
+    case UnaryPositive(child) => child
+    case PromotePrecision(child) => child
+  }
+}
+
+/**
  * Combines two adjacent [[Limit]] operators into one, merging the
  * expressions into one single expression.
  */
