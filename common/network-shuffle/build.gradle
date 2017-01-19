@@ -25,6 +25,7 @@ dependencies {
   compile group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: fasterXmlVersion
   compile group: 'com.fasterxml.jackson.core', name: 'jackson-annotations', version: fasterXmlVersion
   compile group: 'com.google.guava', name: 'guava', version: guavaVersion
+  compile group: 'io.dropwizard.metrics', name: 'metrics-core', version: '3.1.0'
 
   testCompile project(path: subprojectBase + 'snappy-spark-network-common_' + scalaBinaryVersion, configuration: 'testOutput')
 }
