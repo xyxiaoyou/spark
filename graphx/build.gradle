@@ -19,6 +19,7 @@ description = 'Spark Project GraphX'
 
 dependencies {
   compile project(subprojectBase + 'snappy-spark-core_' + scalaBinaryVersion)
+  compile project(subprojectBase + 'snappy-spark-mllib-local_' + scalaBinaryVersion)
   compile project(subprojectBase + 'snappy-spark-tags_' + scalaBinaryVersion)
 
   compile group: 'org.apache.xbean', name: 'xbean-asm5-shaded', version: '4.4'

@@ -283,7 +283,7 @@ case class HashAggregateExec(
   private val bufferSchema = StructType.fromAttributes(aggregateBufferAttributes)
 
   // The name for Fast HashMap
-b  private var fastHashMapTerm: String = _
+  private var fastHashMapTerm: String = _
   private var isFastHashMapEnabled: Boolean = false
 
   // whether a vectorized hashmap is used instead
