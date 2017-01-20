@@ -100,6 +100,9 @@ dependencies {
   compile group: 'org.apache.commons', name: 'commons-lang3', version: '3.3.2'
   compile group: 'org.apache.commons', name: 'commons-math3', version: '3.4.1'
   compile group: 'com.google.code.findbugs', name: 'jsr305', version: jsr305Version
+  compile group: 'org.apache.commons', name: 'commons-crypto', version: '1.0.0'
+  compile group: 'io.netty', name: 'netty', version: '4.0.0.Alpha8'
+  compile group: 'io.netty', name: 'netty-all', version: '4.0.42.Final'
   compile group: 'org.slf4j', name: 'jul-to-slf4j', version: slf4jVersion
   compile group: 'org.slf4j', name: 'jcl-over-slf4j', version: slf4jVersion
   compile group: 'com.ning', name: 'compress-lzf', version: '1.0.3'
