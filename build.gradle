@@ -64,7 +64,7 @@ allprojects {
     chillVersion = '0.8.1'
     kryoVersion = '4.0.0'
     nettyVersion = '3.8.0.Final'
-    nettyAllVersion = '4.0.29.Final'
+    nettyAllVersion = '4.0.42.Final'
     derbyVersion = '10.12.1.1'
     httpClientVersion = '4.5.2'
     httpCoreVersion = '4.4.4'
