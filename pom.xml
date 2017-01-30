@@ -134,6 +134,7 @@
     <hive.parquet.version>1.6.0</hive.parquet.version>
     <jetty.version>9.3.11.v20160721</jetty.version>
     <feign.version>8.18.0</feign.version>
+    <bouncycastle.version>1.52</bouncycastle.version>
     <javaxservlet.version>3.1.0</javaxservlet.version>
     <chill.version>0.8.0</chill.version>
     <ivy.version>2.4.0</ivy.version>
@@ -330,7 +331,11 @@
         <artifactId>okhttp</artifactId>
         <version>3.4.1</version>
       </dependency>
-
+      <dependency>
+        <groupId>org.bouncycastle</groupId>
+        <artifactId>bcpkix-jdk15on</artifactId>
+        <version>${bouncycastle.version}</version>
+      </dependency>
       <!-- This artifact is a shaded version of ASM 5.0.4. The POM that was used to produce this
            is at https://github.com/apache/geronimo-xbean/tree/xbean-4.4/xbean-asm5-shaded
            For context on why we shade ASM, see SPARK-782 and SPARK-6152. -->
