@@ -509,6 +509,16 @@ object SQLConf {
       .intConf
       .createWithDefault(40)
 
+//  val VECTORIZED_AGG_MAP_MAX_COLUMNS =
+//    SQLConfigBuilder("spark.sql.codegen.aggregate.map.columns.max")
+//        .internal()
+//        .doc("Sets the maximum width of schema (aggregate keys + values) for which aggregate with" +
+//            "keys uses an in-memory columnar map to speed up execution. " +
+//            "Setting this to 0 effectively" +
+//            "disables the columnar map")
+//        .intConf
+//        .createWithDefault(3)
+
   val ENABLE_TWOLEVEL_AGG_MAP =
     SQLConfigBuilder("spark.sql.codegen.aggregate.map.twolevel.enable")
       .internal()
@@ -972,4 +982,13 @@ object StaticSQLConf {
     .doc("Only used for internal debugging. Not all functions are supported when it is enabled.")
     .booleanConf
     .createWithDefault(false)
+
+  val VECTORIZED_AGG_MAP_MAX_COLUMNS = buildConf("spark.sql.codegen.aggregate.map.columns.max")
+        .internal()
+        .doc("Sets the maximum width of schema (aggregate keys + values) for which aggregate with" +
+            "keys uses an in-memory columnar map to speed up execution. " +
+            "Setting this to 0 effectively" +
+            "disables the columnar map")
+        .intConf
+        .createWithDefault(3)
 }

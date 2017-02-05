@@ -19,6 +19,9 @@ package org.apache.spark.scheduler
 
 import java.io.{IOException, ObjectInputStream, ObjectOutputStream}
 
+import com.esotericsoftware.kryo.Kryo
+import com.esotericsoftware.kryo.io.{Output, Input}
+
 import org.apache.spark.TaskContext
 
 /**
@@ -39,4 +42,8 @@ private[spark] class NotSerializableFakeTask(myId: Int, stageId: Int)
 
   @throws(classOf[IOException])
   private def readObject(in: ObjectInputStream): Unit = {}
+
+  override def write(kryo: Kryo, output: Output): Unit = {}
+
+  override def read(kryo: Kryo, input: Input): Unit = {}
 }

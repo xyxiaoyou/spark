@@ -22,6 +22,8 @@ import java.util.Random
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
+import com.esotericsoftware.kryo.Kryo
+import com.esotericsoftware.kryo.io.{Output, Input}
 import org.mockito.Mockito.{mock, verify}
 
 import org.apache.spark._
@@ -148,6 +150,10 @@ class LargeTask(stageId: Int) extends Task[Array[Byte]](stageId, 0, 0) {
 
   override def runTask(context: TaskContext): Array[Byte] = randomBuffer
   override def preferredLocations: Seq[TaskLocation] = Seq[TaskLocation]()
+
+  override def write(kryo: Kryo, output: Output): Unit = {}
+
+  override def read(kryo: Kryo, input: Input): Unit = {}
 }
 
 class TaskSetManagerSuite extends SparkFunSuite with LocalSparkContext with Logging {
