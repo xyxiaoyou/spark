@@ -19,8 +19,6 @@ package org.apache.spark.scheduler
 
 import java.util.Properties
 
-import com.esotericsoftware.kryo.Kryo
-import com.esotericsoftware.kryo.io.{Output, Input}
 import org.mockito.Matchers.any
 import org.mockito.Mockito._
 import org.scalatest.BeforeAndAfter
@@ -187,10 +185,6 @@ class TaskContextSuite extends SparkFunSuite with BeforeAndAfter with LocalSpark
       taskMetrics.registerAccumulator(acc1)
       taskMetrics.registerAccumulator(acc2)
       override def runTask(tc: TaskContext): Int = 0
-
-      override def write(kryo: Kryo, output: Output): Unit = {}
-
-      override def read(kryo: Kryo, input: Input): Unit = {}
     }
     // First, simulate task success. This should give us all the accumulators.
     val accumUpdates1 = task.collectAccumulatorUpdates(taskFailed = false)
@@ -213,10 +207,6 @@ class TaskContextSuite extends SparkFunSuite with BeforeAndAfter with LocalSpark
         taskMetrics)
       taskMetrics.incMemoryBytesSpilled(10)
       override def runTask(tc: TaskContext): Int = 0
-
-      override def write(kryo: Kryo, output: Output): Unit = {}
-
-      override def read(kryo: Kryo, input: Input): Unit = {}
     }
     val updatedAccums = task.collectAccumulatorUpdates()
     assert(updatedAccums.length == 2)

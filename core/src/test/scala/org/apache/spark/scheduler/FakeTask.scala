@@ -17,9 +17,6 @@
 
 package org.apache.spark.scheduler
 
-import com.esotericsoftware.kryo.Kryo
-import com.esotericsoftware.kryo.io.{Input, Output}
-
 import org.apache.spark.TaskContext
 
 class FakeTask(
@@ -29,11 +26,6 @@ class FakeTask(
 
   override def runTask(context: TaskContext): Int = 0
   override def preferredLocations: Seq[TaskLocation] = prefLocs
-
-  // TODO Yogs_2_1_Merge
-  override def write(kryo: Kryo, output: Output): Unit = {}
-
-  override def read(kryo: Kryo, input: Input): Unit = {}
 }
 
 object FakeTask {

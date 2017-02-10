@@ -150,10 +150,6 @@ class LargeTask(stageId: Int) extends Task[Array[Byte]](stageId, 0, 0) {
 
   override def runTask(context: TaskContext): Array[Byte] = randomBuffer
   override def preferredLocations: Seq[TaskLocation] = Seq[TaskLocation]()
-
-  override def write(kryo: Kryo, output: Output): Unit = {}
-
-  override def read(kryo: Kryo, input: Input): Unit = {}
 }
 
 class TaskSetManagerSuite extends SparkFunSuite with LocalSparkContext with Logging {
