@@ -334,7 +334,6 @@ private[spark] class Executor(
           taskDescription.serializedTask, Thread.currentThread.getContextClassLoader)
         task.localProperties = taskDescription.properties
         task.setTaskMemoryManager(taskMemoryManager)
-
         // If this task has been killed before we deserialized it, let's quit now. Otherwise,
         // continue executing the task.
         val killReason = reasonIfKilled
@@ -466,7 +465,7 @@ private[spark] class Executor(
         // Note: accumulator updates must be collected after TaskMetrics is updated
         val accumUpdates = task.collectAccumulatorUpdates()
         val directResult = new DirectTaskResult(value, accumUpdates,
-          Some(task.metrics.resultSerializationTimeMetric))
+           Some(task.metrics.resultSerializationTimeMetric))
         val serializedDirectResult = ser.serialize(directResult)
         val resultSize = serializedDirectResult.limit()
 
