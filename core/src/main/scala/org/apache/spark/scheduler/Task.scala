@@ -21,12 +21,8 @@ import java.io.{DataInputStream, DataOutputStream}
 import java.nio.ByteBuffer
 import java.util.Properties
 
-import scala.collection.mutable
-import scala.collection.mutable.HashMap
-
 import com.esotericsoftware.kryo.Kryo
 import com.esotericsoftware.kryo.io.{Input, Output}
-
 import org.apache.spark._
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.executor.TaskMetrics
@@ -35,28 +31,31 @@ import org.apache.spark.metrics.MetricsSystem
 import org.apache.spark.serializer.SerializerInstance
 import org.apache.spark.util._
 
+import scala.collection.mutable
+import scala.collection.mutable.HashMap
+
 /**
- * A unit of execution. We have two kinds of Task's in Spark:
- *
- *  - [[org.apache.spark.scheduler.ShuffleMapTask]]
- *  - [[org.apache.spark.scheduler.ResultTask]]
- *
- * A Spark job consists of one or more stages. The very last stage in a job consists of multiple
- * ResultTasks, while earlier stages consist of ShuffleMapTasks. A ResultTask executes the task
- * and sends the task output back to the driver application. A ShuffleMapTask executes the task
- * and divides the task output to multiple buckets (based on the task's partitioner).
- *
- * @param _stageId id of the stage this task belongs to
- * @param _stageAttemptId attempt id of the stage this task belongs to
- * @param _partitionId index of the number in the RDD
- * @param _metrics a [[TaskMetrics]] that is created at driver side and sent to executor side.
- * @param localProperties copy of thread-local properties set by the user on the driver side.
- *
- * The parameters below are optional:
- * @param jobId id of the job this task belongs to
- * @param appId id of the app this task belongs to
- * @param appAttemptId attempt id of the app this task belongs to
- */
+  * A unit of execution. We have two kinds of Task's in Spark:
+  *
+  *  - [[org.apache.spark.scheduler.ShuffleMapTask]]
+  *  - [[org.apache.spark.scheduler.ResultTask]]
+  *
+  * A Spark job consists of one or more stages. The very last stage in a job consists of multiple
+  * ResultTasks, while earlier stages consist of ShuffleMapTasks. A ResultTask executes the task
+  * and sends the task output back to the driver application. A ShuffleMapTask executes the task
+  * and divides the task output to multiple buckets (based on the task's partitioner).
+  *
+  * @param _stageId id of the stage this task belongs to
+  * @param _stageAttemptId attempt id of the stage this task belongs to
+  * @param _partitionId index of the number in the RDD
+  * @param _metrics a [[TaskMetrics]] that is created at driver side and sent to executor side.
+  * @param localProperties copy of thread-local properties set by the user on the driver side.
+  *
+  * The parameters below are optional:
+  * @param _jobId id of the job this task belongs to
+  * @param _appId id of the app this task belongs to
+  * @param _appAttemptId attempt id of the app this task belongs to
+  */
 private[spark] abstract class Task[T](
     private var _stageId: Int,
     private var _stageAttemptId: Int,
@@ -66,9 +65,9 @@ private[spark] abstract class Task[T](
     protected var taskBinary: Option[Broadcast[Array[Byte]]] = None,
     private var _metrics: TaskMetrics = TaskMetrics.registered,
     @transient var localProperties: Properties = new Properties,
-    val jobId: Option[Int] = None,
-    val appId: Option[String] = None,
-    val appAttemptId: Option[String] = None) extends Serializable {
+    private var _jobId: Option[Int] = None,
+    private var _appId: Option[String] = None,
+    private var _appAttemptId: Option[String] = None) extends Serializable {
 
   final def stageId: Int = _stageId
 
@@ -78,24 +77,29 @@ private[spark] abstract class Task[T](
 
   final def metrics: TaskMetrics = _metrics
 
+  final def jobId: Int = _jobId.get
+
+  final def appId: String = _appId.get
+
+  final def appAttemptId: String = _appAttemptId.get
+
   @transient private[spark] var taskDataBytes: Array[Byte] = _
 
   protected final def getTaskBytes: Array[Byte] = {
     val bytes = taskDataBytes
     if ((bytes ne null) && bytes.length > 0) bytes else taskBinary.get.value
   }
-
   /**
-   * Called by [[org.apache.spark.executor.Executor]] to run this task.
-   *
-   * @param taskAttemptId an identifier for this task attempt that is unique within a SparkContext.
-   * @param attemptNumber how many times this task has been attempted (0 for the first attempt)
-   * @return the result of the task along with updates of Accumulators.
-   */
+    * Called by [[org.apache.spark.executor.Executor]] to run this task.
+    *
+    * @param taskAttemptId an identifier for this task attempt that is unique within a SparkContext.
+    * @param attemptNumber how many times this task has been attempted (0 for the first attempt)
+    * @return the result of the task along with updates of Accumulators.
+    */
   final def run(
-      taskAttemptId: Long,
-      attemptNumber: Int,
-      metricsSystem: MetricsSystem): T = {
+                 taskAttemptId: Long,
+                 attemptNumber: Int,
+                 metricsSystem: MetricsSystem): T = {
     SparkEnv.get.blockManager.registerTask(taskAttemptId)
     context = new TaskContextImpl(
       stageId,
@@ -113,8 +117,9 @@ private[spark] abstract class Task[T](
       kill(interruptThread = false)
     }
 
-    new CallerContext("TASK", appId, appAttemptId, jobId, Option(stageId), Option(stageAttemptId),
-      Option(taskAttemptId), Option(attemptNumber)).setCurrentContext()
+    new CallerContext("TASK", _appId, _appAttemptId, _jobId, Option(stageId),
+      Option(stageAttemptId), Option(taskAttemptId), Option(attemptNumber))
+      .setCurrentContext()
 
     try {
       runTask(context)
@@ -176,20 +181,20 @@ private[spark] abstract class Task[T](
   protected var _executorDeserializeCpuTime: Long = 0
 
   /**
-   * Whether the task has been killed.
-   */
+    * Whether the task has been killed.
+    */
   def killed: Boolean = _killed
 
   /**
-   * Returns the amount of time spent deserializing the RDD and function to be run in nanos.
-   */
+    * Returns the amount of time spent deserializing the RDD and function to be run.
+    */
   def executorDeserializeTime: Long = _executorDeserializeTime
   def executorDeserializeCpuTime: Long = _executorDeserializeCpuTime
 
   /**
-   * Collect the latest values of accumulators used in this task. If the task failed,
-   * filter out the accumulators whose values should not be included on failures.
-   */
+    * Collect the latest values of accumulators used in this task. If the task failed,
+    * filter out the accumulators whose values should not be included on failures.
+    */
   def collectAccumulatorUpdates(taskFailed: Boolean = false): Seq[AccumulatorV2[_, _]] = {
     if (context != null) {
       context.taskMetrics.internalAccums.filter { a =>
@@ -197,8 +202,8 @@ private[spark] abstract class Task[T](
         // value will be updated at driver side.
         // Note: internal accumulators representing task metrics always count failed values
         !a.isZero || a.name == Some(InternalAccumulator.RESULT_SIZE)
-      // zero value external accumulators may still be useful, e.g. SQLMetrics, we should not filter
-      // them out.
+        // zero value external accumulators may still be useful,
+        // e.g. SQLMetrics, we should not filter them out.
       } ++ context.taskMetrics.externalAccums.filter(a => !taskFailed || a.countFailedValues)
     } else {
       Seq.empty
@@ -206,11 +211,11 @@ private[spark] abstract class Task[T](
   }
 
   /**
-   * Kills a task by setting the interrupted flag to true. This relies on the upper level Spark
-   * code and user code to properly handle the flag. This function should be idempotent so it can
-   * be called multiple times.
-   * If interruptThread is true, we will also call Thread.interrupt() on the Task's executor thread.
-   */
+    * Kills a task by setting the interrupted flag to true. This relies on the upper level Spark
+    * code and user code to properly handle the flag. This function should be idempotent so it can
+    * be called multiple times.
+    * If interruptThread is true, we will also call Thread.interrupt() on the Task's executor thread.
+    */
   def kill(interruptThread: Boolean) {
     _killed = true
     if (context != null) {
@@ -235,6 +240,9 @@ private[spark] abstract class Task[T](
       kryo.writeClassAndObject(output, taskBinary.get)
     }
     _metrics.write(kryo, output)
+    output.writeInt(_jobId.get)
+    output.writeString(_appId.get)
+    output.writeString(_appAttemptId.get)
   }
 
   def readKryo(kryo: Kryo, input: Input): Unit = {
@@ -249,30 +257,33 @@ private[spark] abstract class Task[T](
       taskBinary = None
     } else {
       taskBinary = Some(kryo.readClassAndObject(input)
-          .asInstanceOf[Broadcast[Array[Byte]]])
+        .asInstanceOf[Broadcast[Array[Byte]]])
     }
     _metrics = new TaskMetrics
     _metrics.read(kryo, input)
+    _jobId = Some(input.readInt())
+    _appId = Some(input.readString())
+    _appAttemptId = Some(input.readString())
   }
 }
 
 /**
- * Handles transmission of tasks and their dependencies, because this can be slightly tricky. We
- * need to send the list of JARs and files added to the SparkContext with each task to ensure that
- * worker nodes find out about it, but we can't make it part of the Task because the user's code in
- * the task might depend on one of the JARs. Thus we serialize each task as multiple objects, by
- * first writing out its dependencies.
- */
+  * Handles transmission of tasks and their dependencies, because this can be slightly tricky. We
+  * need to send the list of JARs and files added to the SparkContext with each task to ensure that
+  * worker nodes find out about it, but we can't make it part of the Task because the user's code in
+  * the task might depend on one of the JARs. Thus we serialize each task as multiple objects, by
+  * first writing out its dependencies.
+  */
 private[spark] object Task {
   /**
-   * Serialize a task and the current app dependencies (files and JARs added to the SparkContext)
-   */
+    * Serialize a task and the current app dependencies (files and JARs added to the SparkContext)
+    */
   def serializeWithDependencies(
-      task: Task[_],
-      currentFiles: mutable.Map[String, Long],
-      currentJars: mutable.Map[String, Long],
-      serializer: SerializerInstance)
-    : ByteBuffer = {
+                                 task: Task[_],
+                                 currentFiles: mutable.Map[String, Long],
+                                 currentJars: mutable.Map[String, Long],
+                                 serializer: SerializerInstance)
+  : ByteBuffer = {
 
     val out = new ByteBufferOutputStream(4096)
     val dataOut = new DataOutputStream(out)
@@ -294,6 +305,7 @@ private[spark] object Task {
     // Write the task properties separately so it is available before full task deserialization.
     val props = task.localProperties
     val numProps = props.size()
+
     dataOut.writeInt(numProps)
     if (numProps > 0) {
       val keys = props.keys()
@@ -313,14 +325,14 @@ private[spark] object Task {
   }
 
   /**
-   * Deserialize the list of dependencies in a task serialized with serializeWithDependencies,
-   * and return the task itself as a serialized ByteBuffer. The caller can then update its
-   * ClassLoaders and deserialize the task.
-   *
-   * @return (taskFiles, taskJars, taskProps, taskBytes)
-   */
+    * Deserialize the list of dependencies in a task serialized with serializeWithDependencies,
+    * and return the task itself as a serialized ByteBuffer. The caller can then update its
+    * ClassLoaders and deserialize the task.
+    *
+    * @return (taskFiles, taskJars, taskProps, taskBytes)
+    */
   def deserializeWithDependencies(serializedTask: ByteBuffer)
-    : (HashMap[String, Long], HashMap[String, Long], Properties, ByteBuffer) = {
+  : (HashMap[String, Long], HashMap[String, Long], Properties, ByteBuffer) = {
 
     val in = new ByteBufferInputStream(serializedTask)
     val dataIn = new DataInputStream(in)
@@ -338,9 +350,9 @@ private[spark] object Task {
     for (i <- 0 until numJars) {
       taskJars(dataIn.readUTF()) = dataIn.readLong()
     }
-
     val taskProps = new Properties
     var numProps = dataIn.readInt()
+
     while (numProps > 0) {
       val key = dataIn.readUTF()
       taskProps.setProperty(key, dataIn.readUTF())
@@ -354,7 +366,7 @@ private[spark] object Task {
 }
 
 private[spark] final class TaskData private(var compressedBytes: Array[Byte],
-    var uncompressedLen: Int, var reference: Int) extends Serializable {
+                                            var uncompressedLen: Int, var reference: Int) extends Serializable {
 
   def this(compressedBytes: Array[Byte], uncompressedLen: Int) =
     this(compressedBytes, uncompressedLen, TaskData.NO_REF)
@@ -377,8 +389,8 @@ private[spark] final class TaskData private(var compressedBytes: Array[Byte],
   override def equals(obj: Any): Boolean = obj match {
     case d: TaskData =>
       uncompressedLen == d.uncompressedLen &&
-          reference == d.reference &&
-          java.util.Arrays.equals(compressedBytes, d.compressedBytes)
+        reference == d.reference &&
+        java.util.Arrays.equals(compressedBytes, d.compressedBytes)
     case _ => false
   }
 }
@@ -420,3 +432,4 @@ private[spark] object TaskData {
     }
   }
 }
+

@@ -53,7 +53,7 @@ import org.apache.spark.rdd.RDD
  * @param jobId id of the job this task belongs to
  * @param appId id of the app this task belongs to
  * @param appAttemptId attempt id of the app this task belongs to
-  */
+ */
 private[spark] class ResultTask[T, U](
     stageId: Int,
     stageAttemptId: Int,

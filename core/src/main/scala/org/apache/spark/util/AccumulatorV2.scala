@@ -56,7 +56,8 @@ abstract class AccumulatorV2[IN, OUT] extends Serializable {
     if (this.metadata != null) {
       throw new IllegalStateException("Cannot register an Accumulator twice.")
     }
-    this.metadata = AccumulatorMetadata(AccumulatorContext.newId(), name, countFailedValues)
+    val id = AccumulatorContext.newId()
+    this.metadata = AccumulatorMetadata(id, name, countFailedValues)
     AccumulatorContext.register(this)
     sc.cleaner.foreach(_.registerAccumulatorForCleanup(this))
   }

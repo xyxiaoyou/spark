@@ -266,7 +266,9 @@ class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
 
   override def write(kryo: Kryo, output: Output): Unit = {
     _executorDeserializeTime.write(kryo, output)
+    _executorDeserializeCpuTime.write(kryo, output)
     _executorRunTime.write(kryo, output)
+    _executorCpuTime.write(kryo, output)
     _resultSize.write(kryo, output)
     _jvmGCTime.write(kryo, output)
     _resultSerializationTime.write(kryo, output)
@@ -284,7 +286,9 @@ class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
     // read the TaskContext thread-local once
     val taskContext = TaskContext.get()
     _executorDeserializeTime.read(kryo, input, taskContext)
+    _executorDeserializeCpuTime.read(kryo, input, taskContext)
     _executorRunTime.read(kryo, input, taskContext)
+    _executorCpuTime.read(kryo, input, taskContext)
     _resultSize.read(kryo, input, taskContext)
     _jvmGCTime.read(kryo, input, taskContext)
     _resultSerializationTime.read(kryo, input, taskContext)
