@@ -52,10 +52,6 @@ import org.apache.spark.util._
  * @param _metrics a [[TaskMetrics]] that is created at driver side and sent to executor side.
  * @param localProperties copy of thread-local properties set by the user on the driver side.
  *
- * The parameters below are optional:
- * @param jobId id of the job this task belongs to
- * @param appId id of the app this task belongs to
- * @param appAttemptId attempt id of the app this task belongs to
  */
 private[spark] abstract class Task[T](
     private var _stageId: Int,
@@ -65,10 +61,8 @@ private[spark] abstract class Task[T](
     // The default value is only used in tests.
     protected var taskBinary: Option[Broadcast[Array[Byte]]] = None,
     private var _metrics: TaskMetrics = TaskMetrics.registered,
-    @transient var localProperties: Properties = new Properties,
-    val jobId: Option[Int] = None,
-    val appId: Option[String] = None,
-    val appAttemptId: Option[String] = None) extends Serializable {
+    @transient var localProperties: Properties = new Properties)
+  extends Serializable {
 
   final def stageId: Int = _stageId
 
@@ -112,9 +106,6 @@ private[spark] abstract class Task[T](
     if (_killed) {
       kill(interruptThread = false)
     }
-
-    new CallerContext("TASK", appId, appAttemptId, jobId, Option(stageId), Option(stageAttemptId),
-      Option(taskAttemptId), Option(attemptNumber)).setCurrentContext()
 
     try {
       runTask(context)
