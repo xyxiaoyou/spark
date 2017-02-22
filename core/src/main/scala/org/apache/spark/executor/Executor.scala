@@ -261,7 +261,6 @@ private[spark] class Executor(
         task.taskDataBytes = taskDataBytes
         task.localProperties = taskProps
         task.setTaskMemoryManager(taskMemoryManager)
-
         // If this task has been killed before we deserialized it, let's quit now. Otherwise,
         // continue executing the task.
         if (killed) {
@@ -334,13 +333,12 @@ private[spark] class Executor(
         task.metrics.setExecutorCpuTime(
           (taskFinishCpu - taskStartCpu) - task.executorDeserializeCpuTime)
         task.metrics.setJvmGCTime(computeTotalGcTime() - startGCTime)
-
         // Now resultSerializationTime is evaluated directly inside the
         // serialization write methods and added to final serialized bytes
         // to avoid double serialization of Task (for timing then TaskResult).
         val accumUpdates = task.collectAccumulatorUpdates()
         val directResult = new DirectTaskResult(value, accumUpdates,
-          Some(task.metrics.resultSerializationTimeMetric))
+           Some(task.metrics.resultSerializationTimeMetric))
         val serializedDirectResult = ser.serialize(directResult)
         val resultSize = serializedDirectResult.limit
 

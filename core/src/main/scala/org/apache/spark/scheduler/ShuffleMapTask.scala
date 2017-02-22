@@ -50,6 +50,10 @@ import org.apache.spark.shuffle.ShuffleWriter
  * @param metrics a `TaskMetrics` that is created at driver side and sent to executor side.
  * @param localProperties copy of thread-local properties set by the user on the driver side.
  *
+ * The parameters below are optional:
+ * @param jobId id of the job this task belongs to
+ * @param appId id of the app this task belongs to
+ * @param appAttemptId attempt id of the app this task belongs to
  */
 private[spark] class ShuffleMapTask(
     stageId: Int,
@@ -59,9 +63,12 @@ private[spark] class ShuffleMapTask(
     private var partition: Partition,
     @transient private var locs: Seq[TaskLocation],
     metrics: TaskMetrics,
-    localProperties: Properties)
+    localProperties: Properties,
+    jobId: Option[Int] = None,
+    appId: Option[String] = None,
+    appAttemptId: Option[String] = None)
   extends Task[MapStatus](stageId, stageAttemptId, partition.index, _taskData,
-    _taskBinary, metrics, localProperties)
+    _taskBinary, metrics, localProperties, jobId, appId, appAttemptId)
 with KryoSerializable with Logging {
 
   /** A constructor used only in test suites. This does not require passing in an RDD. */

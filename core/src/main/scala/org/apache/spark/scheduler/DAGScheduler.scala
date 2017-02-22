@@ -1030,7 +1030,8 @@ class DAGScheduler(
             val locs = taskIdToLocations(id)
             val part = stage.rdd.partitions(id)
             new ShuffleMapTask(stage.id, stage.latestInfo.attemptId, taskData,
-              taskBinary, part, locs, stage.latestInfo.taskMetrics, properties)
+              taskBinary, part, locs, stage.latestInfo.taskMetrics, properties,
+              Option(jobId), Option(sc.applicationId), Option(sc.applicationId))
           }
 
         case stage: ResultStage =>
@@ -1039,7 +1040,8 @@ class DAGScheduler(
             val part = stage.rdd.partitions(p)
             val locs = taskIdToLocations(id)
             new ResultTask(stage.id, stage.latestInfo.attemptId, taskData,
-              taskBinary, part, locs, id, properties, stage.latestInfo.taskMetrics)
+              taskBinary, part, locs, id, properties, stage.latestInfo.taskMetrics,
+              Option(jobId), Option(sc.applicationId), Option(sc.applicationId))
           }
       }
     } catch {

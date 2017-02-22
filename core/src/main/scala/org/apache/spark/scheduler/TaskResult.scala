@@ -65,7 +65,7 @@ private[spark] class DirectTaskResult[T](
 
     val numUpdates = in.readInt
     if (numUpdates == 0) {
-      accumUpdates = Seq()
+      accumUpdates = null
     } else {
       val _accumUpdates = new ArrayBuffer[AccumulatorV2[_, _]]
       for (i <- 0 until numUpdates) {
@@ -82,6 +82,7 @@ private[spark] class DirectTaskResult[T](
         kryo.writeClassAndObject(output, _value)
         output.writeVarInt(accumUpdates.size, true)
         output.writeBoolean(true) // indicates additional timeMetric
+        accumUpdates.foreach(println)
         accumUpdates.foreach(kryo.writeClassAndObject(output, _))
         val end = System.nanoTime()
         timeMetric.setValue(math.max(end - start, 0L) / 1000000.0)
