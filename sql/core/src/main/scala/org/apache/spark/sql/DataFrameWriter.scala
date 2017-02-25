@@ -398,7 +398,8 @@ final class DataFrameWriter[T] private[sql](ds: Dataset[T]) {
           schema = new StructType,
           provider = Some(source),
           partitionColumnNames = partitioningColumns.getOrElse(Nil),
-          bucketSpec = getBucketSpec
+          bucketSpec = getBucketSpec,
+          properties = extraOptions.toMap
         )
         df.sparkSession.sessionState.executePlan(
           CreateTable(tableDesc, mode, Some(df.logicalPlan))).toRdd
