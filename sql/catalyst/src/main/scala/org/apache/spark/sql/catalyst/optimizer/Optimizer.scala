@@ -17,24 +17,18 @@
 
 package org.apache.spark.sql.catalyst.optimizer
 
-import scala.annotation.tailrec
-import scala.collection.immutable.HashSet
-import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
-
-import org.apache.spark.api.java.function.FilterFunction
 import org.apache.spark.sql.AnalysisException
-import org.apache.spark.sql.catalyst.{CatalystConf, SimpleCatalystConf}
 import org.apache.spark.sql.catalyst.analysis._
 import org.apache.spark.sql.catalyst.catalog.{InMemoryCatalog, SessionCatalog}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
-import org.apache.spark.sql.catalyst.expressions.Literal.{FalseLiteral, TrueLiteral}
-import org.apache.spark.sql.catalyst.planning.ExtractFiltersAndInnerJoins
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules._
+import org.apache.spark.sql.catalyst.{CatalystConf, SimpleCatalystConf}
 import org.apache.spark.sql.types._
+
+import scala.collection.mutable
 
 /**
  * Abstract class all optimizers should inherit of, contains the standard batches (extending
@@ -961,27 +955,6 @@ object PushPredicateThroughJoin extends Rule[LogicalPlan] with PredicateHelper {
         case NaturalJoin(_) => sys.error("Untransformed NaturalJoin node")
         case UsingJoin(_, _) => sys.error("Untransformed Using join node")
       }
-  }
-}
-
-/**
- * Removes [[Cast Casts]] that are unnecessary because the input is already the correct type.
- */
-object SimplifyCasts extends Rule[LogicalPlan] {
-  def apply(plan: LogicalPlan): LogicalPlan = plan transformAllExpressions {
-    case Cast(e, dataType) if e.dataType == dataType ||
-      (e.dataType.getClass == dataType.getClass &&
-        e.dataType.asNullable == dataType) => e
-  }
-}
-
-/**
- * Removes nodes that are not necessary.
- */
-object RemoveDispensableExpressions extends Rule[LogicalPlan] {
-  def apply(plan: LogicalPlan): LogicalPlan = plan transformAllExpressions {
-    case UnaryPositive(child) => child
-    case PromotePrecision(child) => child
   }
 }
 

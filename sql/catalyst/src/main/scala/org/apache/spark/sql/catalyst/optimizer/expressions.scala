@@ -513,31 +513,31 @@ case class OptimizeCodegen(conf: CatalystConf) extends Rule[LogicalPlan] {
 }
 
 
-///**
-// * Removes [[Cast Casts]] that are unnecessary because the input is already the correct type.
-// */
-//object SimplifyCasts extends Rule[LogicalPlan] {
-//  def apply(plan: LogicalPlan): LogicalPlan = plan transformAllExpressions {
-//    case Cast(e, dataType) if e.dataType == dataType => e
-//    case c @ Cast(e, dataType) => (e.dataType, dataType) match {
-//      case (ArrayType(from, false), ArrayType(to, true)) if from == to => e
-//      case (MapType(fromKey, fromValue, false), MapType(toKey, toValue, true))
-//        if fromKey == toKey && fromValue == toValue => e
-//      case _ => c
-//      }
-//  }
-//}
-//
-//
-///**
-// * Removes nodes that are not necessary.
-// */
-//object RemoveDispensableExpressions extends Rule[LogicalPlan] {
-//  def apply(plan: LogicalPlan): LogicalPlan = plan transformAllExpressions {
-//    case UnaryPositive(child) => child
-//    case PromotePrecision(child) => child
-//  }
-//}
+/**
+ * Removes [[Cast Casts]] that are unnecessary because the input is already the correct type.
+ */
+object SimplifyCasts extends Rule[LogicalPlan] {
+  def apply(plan: LogicalPlan): LogicalPlan = plan transformAllExpressions {
+    case Cast(e, dataType) if e.dataType == dataType => e
+    case c @ Cast(e, dataType) => (e.dataType, dataType) match {
+      case (ArrayType(from, false), ArrayType(to, true)) if from == to => e
+      case (MapType(fromKey, fromValue, false), MapType(toKey, toValue, true))
+        if fromKey == toKey && fromValue == toValue => e
+      case _ => c
+      }
+  }
+}
+
+
+/**
+ * Removes nodes that are not necessary.
+ */
+object RemoveDispensableExpressions extends Rule[LogicalPlan] {
+  def apply(plan: LogicalPlan): LogicalPlan = plan transformAllExpressions {
+    case UnaryPositive(child) => child
+    case PromotePrecision(child) => child
+  }
+}
 
 
 /**

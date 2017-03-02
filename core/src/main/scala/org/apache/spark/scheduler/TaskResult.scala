@@ -82,7 +82,6 @@ private[spark] class DirectTaskResult[T](
         kryo.writeClassAndObject(output, _value)
         output.writeVarInt(accumUpdates.size, true)
         output.writeBoolean(true) // indicates additional timeMetric
-        accumUpdates.foreach(println)
         accumUpdates.foreach(kryo.writeClassAndObject(output, _))
         val end = System.nanoTime()
         timeMetric.setValue(math.max(end - start, 0L) / 1000000.0)
