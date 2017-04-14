@@ -214,28 +214,7 @@ final class DataStreamWriter[T] private[sql](ds: Dataset[T]) {
    * @since 2.0.0
    */
   def start(): StreamingQuery = {
-    if (source == "snappy") {
-      assertNotPartitioned("snappy")
-      if (extraOptions.get("queryName").isEmpty) {
-        throw new AnalysisException("queryName must be specified for Snappy sink")
-      }
-
-      val sink = new SnappySink(df.schema, outputMode)
-      val resultDf = Dataset.ofRows(df.sparkSession, new SnappyPlan(sink))
-      val chkpointLoc = extraOptions.get("checkpointLocation")
-      val recoverFromChkpoint = chkpointLoc.isDefined && outputMode == OutputMode.Complete()
-      val query = df.sparkSession.sessionState.streamingQueryManager.startQuery(
-        extraOptions.get("queryName"),
-        chkpointLoc,
-        df,
-        sink,
-        outputMode,
-        useTempCheckpointLocation = true,
-        recoverFromCheckpointLocation = recoverFromChkpoint,
-        trigger = trigger)
-      resultDf.createOrReplaceTempView(query.name)
-      query
-    } else if (source == "memory") {
+    if (source == "memory") {
       assertNotPartitioned("memory")
       if (extraOptions.get("queryName").isEmpty) {
         throw new AnalysisException("queryName must be specified for memory sink")
