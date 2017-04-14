@@ -53,6 +53,7 @@ class ConsoleSink(options: Map[String, String]) extends Sink with Logging {
 
 class ConsoleSinkProvider extends StreamSinkProvider with DataSourceRegister {
   def createSink(
+      df: DataFrame,
       sqlContext: SQLContext,
       parameters: Map[String, String],
       partitionColumns: Seq[String],
