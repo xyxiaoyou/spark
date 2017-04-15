@@ -150,7 +150,6 @@ trait StreamSourceProvider {
 @InterfaceStability.Unstable
 trait StreamSinkProvider {
   def createSink(
-      df: DataFrame,
       sqlContext: SQLContext,
       parameters: Map[String, String],
       partitionColumns: Seq[String],

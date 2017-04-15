@@ -20,18 +20,17 @@ package org.apache.spark.sql.streaming.test
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-import scala.concurrent.duration._
-
-import org.mockito.Mockito._
-import org.scalatest.BeforeAndAfter
-
 import org.apache.spark.sql._
 import org.apache.spark.sql.execution.streaming._
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.{StreamSinkProvider, StreamSourceProvider}
-import org.apache.spark.sql.streaming.{OutputMode, ProcessingTime, StreamingQuery, StreamTest}
+import org.apache.spark.sql.streaming.{OutputMode, ProcessingTime, StreamTest, StreamingQuery}
 import org.apache.spark.sql.types._
 import org.apache.spark.util.Utils
+import org.mockito.Mockito._
+import org.scalatest.BeforeAndAfter
+
+import scala.concurrent.duration._
 
 object LastOptions {
 
@@ -92,14 +91,13 @@ class DefaultSource extends StreamSourceProvider with StreamSinkProvider {
   }
 
   override def createSink(
-      df: DataFrame,
       spark: SQLContext,
       parameters: Map[String, String],
       partitionColumns: Seq[String],
       outputMode: OutputMode): Sink = {
     LastOptions.parameters = parameters
     LastOptions.partitionColumns = partitionColumns
-    LastOptions.mockStreamSinkProvider.createSink(df, spark,
+    LastOptions.mockStreamSinkProvider.createSink(spark,
       parameters, partitionColumns, outputMode)
     new Sink {
       override def addBatch(batchId: Long, data: DataFrame): Unit = {}

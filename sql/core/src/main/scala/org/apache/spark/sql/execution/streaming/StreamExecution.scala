@@ -450,7 +450,7 @@ class StreamExecution(
           if committedOffsets.get(source).map(_ != available).getOrElse(true) =>
           val current = committedOffsets.get(source)
           val batch = source.getBatch(current, available)
-          logDebug(s"Retrieving data from $source: $current -> $available")
+          println(s"Retrieving data from $source: $current -> $available")
           Some(source -> batch)
         case _ => None
       }

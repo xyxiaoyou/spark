@@ -271,7 +271,7 @@ case class DataSource(
   def createSink(df: DataFrame, outputMode: OutputMode): Sink = {
     providingClass.newInstance() match {
       case s: StreamSinkProvider =>
-        s.createSink(df, sparkSession.sqlContext, caseInsensitiveOptions,
+        s.createSink(sparkSession.sqlContext, caseInsensitiveOptions,
           partitionColumns, outputMode)
 
       case fileFormat: FileFormat =>
