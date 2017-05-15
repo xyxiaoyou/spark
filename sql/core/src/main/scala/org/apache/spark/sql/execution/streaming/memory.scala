@@ -187,6 +187,13 @@ class MemorySink(val schema: StructType, outputMode: OutputMode) extends Sink wi
   }
 
   override def addBatch(batchId: Long, data: DataFrame): Unit = {
+    println("addBatch( " + batchId + " )")
+    // data.show(200)
+
+//    data.sparkSession.createDataFrame(
+//      data.sparkSession.sparkContext.parallelize(data.collect()), data.schema)
+//      .show(200)
+
     val notCommitted = synchronized {
       latestBatchId.isEmpty || batchId > latestBatchId.get
     }

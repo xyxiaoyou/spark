@@ -24,7 +24,7 @@ import org.apache.spark.sql.streaming.OutputMode
 
 class ConsoleSink(options: Map[String, String]) extends Sink with Logging {
   // Number of rows to display, by default 20 rows
-  private val numRowsToShow = options.get("numRows").map(_.toInt).getOrElse(20)
+  private val numRowsToShow = options.get("numRows").map(_.toInt).getOrElse(100)
 
   // Truncate the displayed data if it is too long, by default it is true
   private val isTruncated = options.get("truncate").map(_.toBoolean).getOrElse(true)

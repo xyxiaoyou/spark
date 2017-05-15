@@ -100,7 +100,11 @@ private[state] class HDFSBackedStateStoreProvider(
     }
 
     override def put(key: UnsafeRow, value: UnsafeRow): Unit = {
+
       verify(state == UPDATING, "Cannot put after already committed or aborted")
+      println(" id " +  id + " version " + version)
+      println("StateStore key " + key.getInt(0))
+      println("StateStore value " + value.getInt(0) + " --------- " + value.getInt(1))
 
       val isNewKey = !mapToUpdate.containsKey(key)
       mapToUpdate.put(key, value)
