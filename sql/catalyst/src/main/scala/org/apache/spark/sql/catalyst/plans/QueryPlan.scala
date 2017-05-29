@@ -319,4 +319,14 @@ object QueryPlan extends PredicateHelper {
       Nil
     }
   }
+
+  /** Args that have cleaned such that differences in expression id should not affect equality */
+  @transient protected lazy val cleanArgs: Seq[Any] = {
+    def cleanArg(arg: Any): Any = arg match {
+      // Children are checked using sameResult above.
+      case tn: TreeNode[_] if containsChild(tn) => null
+      case e: Expression => cleanExpression(e).canonicalized
+      case other => other
+    }
+  }
 }
