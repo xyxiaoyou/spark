@@ -8,7 +8,7 @@ This is a collaboratively maintained project working on [SPARK-18278](https://is
 
 ## Getting Started
 
-- [Usage guide](docs/running-on-kubernetes.md) shows how to run the code
+- [Usage guide](https://apache-spark-on-k8s.github.io/userdocs/) shows how to run the code
 - [Development docs](resource-managers/kubernetes/README.md) shows how to get set up for development
 - Code is primarily located in the [resource-managers/kubernetes](resource-managers/kubernetes) folder
 
