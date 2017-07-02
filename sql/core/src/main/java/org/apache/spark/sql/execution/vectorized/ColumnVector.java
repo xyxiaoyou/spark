@@ -616,7 +616,7 @@ public abstract class ColumnVector implements AutoCloseable {
       return UTF8String.fromBytes(a.byteArray, a.byteArrayOffset, a.length);
     } else {
       Binary v = dictionary.decodeToBinary(dictionaryIds.getInt(rowId));
-      return UTF8String.fromBytes(v.getBytes());
+      return UTF8String.fromBuffer(v.toByteBuffer());
     }
   }
 
