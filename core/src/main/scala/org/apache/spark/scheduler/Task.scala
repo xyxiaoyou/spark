@@ -20,8 +20,12 @@ package org.apache.spark.scheduler
 import java.nio.ByteBuffer
 import java.util.Properties
 
+import scala.collection.mutable
+import scala.collection.mutable.HashMap
+
 import com.esotericsoftware.kryo.Kryo
 import com.esotericsoftware.kryo.io.{Input, Output}
+
 import org.apache.spark._
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.executor.TaskMetrics
@@ -30,31 +34,27 @@ import org.apache.spark.memory.{MemoryMode, TaskMemoryManager}
 import org.apache.spark.metrics.MetricsSystem
 import org.apache.spark.util._
 
-import scala.collection.mutable
-import scala.collection.mutable.HashMap
-
 /**
-  * A unit of execution. We have two kinds of Task's in Spark:
-  *
-  *  - [[org.apache.spark.scheduler.ShuffleMapTask]]
-  *  - [[org.apache.spark.scheduler.ResultTask]]
-  *
-  * A Spark job consists of one or more stages. The very last stage in a job consists of multiple
-  * ResultTasks, while earlier stages consist of ShuffleMapTasks. A ResultTask executes the task
-  * and sends the task output back to the driver application. A ShuffleMapTask executes the task
-  * and divides the task output to multiple buckets (based on the task's partitioner).
-  *
-  * @param _stageId id of the stage this task belongs to
-  * @param _stageAttemptId attempt id of the stage this task belongs to
-  * @param _partitionId index of the number in the RDD
-  * @param _metrics a [[TaskMetrics]] that is created at driver side and sent to executor side.
-  * @param localProperties copy of thread-local properties set by the user on the driver side.
-  *
-  * The parameters below are optional:
-  * @param _jobId id of the job this task belongs to
-  * @param _appId id of the app this task belongs to
-  * @param _appAttemptId attempt id of the app this task belongs to
-  */
+ * A unit of execution. We have two kinds of Task's in Spark:
+ *
+ *  - [[org.apache.spark.scheduler.ShuffleMapTask]]
+ *  - [[org.apache.spark.scheduler.ResultTask]]
+ *
+ * A Spark job consists of one or more stages. The very last stage in a job consists of multiple
+ * ResultTasks, while earlier stages consist of ShuffleMapTasks. A ResultTask executes the task
+ * and sends the task output back to the driver application. A ShuffleMapTask executes the task
+ * and divides the task output to multiple buckets (based on the task's partitioner).
+ *
+ * @param _stageId id of the stage this task belongs to
+ * @param _stageAttemptId attempt id of the stage this task belongs to
+ * @param _partitionId index of the number in the RDD
+ * @param _metrics a [[TaskMetrics]] that is created at driver side and sent to executor side.
+ * @param localProperties copy of thread-local properties set by the user on the driver side.
+ * The parameters below are optional:
+ * @param _jobId id of the job this task belongs to
+ * @param _appId id of the app this task belongs to
+ * @param _appAttemptId attempt id of the app this task belongs to
+ */
 private[spark] abstract class Task[T](
     private var _stageId: Int,
     private var _stageAttemptId: Int,
@@ -92,13 +92,14 @@ private[spark] abstract class Task[T](
     val bytes = taskDataBytes
     if ((bytes ne null) && bytes.length > 0) bytes else taskBinary.get.value
   }
+
   /**
-    * Called by [[org.apache.spark.executor.Executor]] to run this task.
-    *
-    * @param taskAttemptId an identifier for this task attempt that is unique within a SparkContext.
-    * @param attemptNumber how many times this task has been attempted (0 for the first attempt)
-    * @return the result of the task along with updates of Accumulators.
-    */
+   * Called by [[org.apache.spark.executor.Executor]] to run this task.
+   *
+   * @param taskAttemptId an identifier for this task attempt that is unique within a SparkContext.
+   * @param attemptNumber how many times this task has been attempted (0 for the first attempt)
+   * @return the result of the task along with updates of Accumulators.
+   */
   final def run(
                  taskAttemptId: Long,
                  attemptNumber: Int,
@@ -207,15 +208,15 @@ private[spark] abstract class Task[T](
   def killed: Boolean = _killed
 
   /**
-    * Returns the amount of time spent deserializing the RDD and function to be run.
-    */
+   * Returns the amount of time spent deserializing the RDD and function to be run in nanos.
+   */
   def executorDeserializeTime: Long = _executorDeserializeTime
   def executorDeserializeCpuTime: Long = _executorDeserializeCpuTime
 
   /**
-    * Collect the latest values of accumulators used in this task. If the task failed,
-    * filter out the accumulators whose values should not be included on failures.
-    */
+   * Collect the latest values of accumulators used in this task. If the task failed,
+   * filter out the accumulators whose values should not be included on failures.
+   */
   def collectAccumulatorUpdates(taskFailed: Boolean = false): Seq[AccumulatorV2[_, _]] = {
     if (context != null) {
       // Note: internal accumulators representing task metrics always count failed values
@@ -288,16 +289,16 @@ private[spark] abstract class Task[T](
 }
 
 /**
-  * Handles transmission of tasks and their dependencies, because this can be slightly tricky. We
-  * need to send the list of JARs and files added to the SparkContext with each task to ensure that
-  * worker nodes find out about it, but we can't make it part of the Task because the user's code in
-  * the task might depend on one of the JARs. Thus we serialize each task as multiple objects, by
-  * first writing out its dependencies.
-  */
+ * Handles transmission of tasks and their dependencies, because this can be slightly tricky. We
+ * need to send the list of JARs and files added to the SparkContext with each task to ensure that
+ * worker nodes find out about it, but we can't make it part of the Task because the user's code in
+ * the task might depend on one of the JARs. Thus we serialize each task as multiple objects, by
+ * first writing out its dependencies.
+ */
 private[spark] object Task {
   /**
-    * Serialize a task and the current app dependencies (files and JARs added to the SparkContext)
-    */
+   * Serialize a task and the current app dependencies (files and JARs added to the SparkContext)
+   */
   def serializeWithDependencies(
                                  task: Task[_],
                                  currentFiles: mutable.Map[String, Long],
@@ -336,12 +337,12 @@ private[spark] object Task {
   }
 
   /**
-    * Deserialize the list of dependencies in a task serialized with serializeWithDependencies,
-    * and return the task itself as a serialized ByteBuffer. The caller can then update its
-    * ClassLoaders and deserialize the task.
-    *
-    * @return (taskFiles, taskJars, taskProps, taskBytes)
-    */
+   * Deserialize the list of dependencies in a task serialized with serializeWithDependencies,
+   * and return the task itself as a serialized ByteBuffer. The caller can then update its
+   * ClassLoaders and deserialize the task.
+   *
+   * @return (taskFiles, taskJars, taskBytes)
+   */
   def deserializeWithDependencies(serializedTask: ByteBuffer)
   : (HashMap[String, Long], HashMap[String, Long], Properties, ByteBuffer) = {
 
@@ -374,7 +375,7 @@ private[spark] object Task {
 }
 
 private[spark] final class TaskData private(var compressedBytes: Array[Byte],
-                                            var uncompressedLen: Int, var reference: Int) extends Serializable {
+    var uncompressedLen: Int, var reference: Int) extends Serializable {
 
   def this(compressedBytes: Array[Byte], uncompressedLen: Int) =
     this(compressedBytes, uncompressedLen, TaskData.NO_REF)
@@ -440,4 +441,3 @@ private[spark] object TaskData {
     }
   }
 }
-

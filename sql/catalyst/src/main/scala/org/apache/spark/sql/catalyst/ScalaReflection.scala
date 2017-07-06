@@ -103,6 +103,7 @@ object ScalaReflection extends ScalaReflection {
       case t if t <:< definitions.ShortTpe => classOf[Array[Short]]
       case t if t <:< definitions.ByteTpe => classOf[Array[Byte]]
       case t if t <:< definitions.BooleanTpe => classOf[Array[Boolean]]
+      case t if t <:< localTypeOf[Decimal] => classOf[Array[Decimal]]
       case other =>
         // There is probably a better way to do this, but I couldn't find it...
         val elementType = dataTypeFor(other).asInstanceOf[ObjectType].cls
@@ -821,7 +822,6 @@ trait ScalaReflection {
 
   // The Predef.Map is scala.collection.immutable.Map.
   // Since the map values can be mutable, we explicitly import scala.collection.Map at here.
-  import scala.collection.Map
 
   /**
    * Any codes calling `scala.reflect.api.Types.TypeApi.<:<` should be wrapped by this method to

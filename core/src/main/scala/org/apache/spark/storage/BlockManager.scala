@@ -29,6 +29,7 @@ import scala.collection.mutable.HashMap
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.duration._
 import scala.reflect.ClassTag
 import scala.util.Random
 import scala.util.control.NonFatal
@@ -215,14 +216,14 @@ private[spark] class BlockManager(
   private val maxRemoteBlockToMem = conf.get(config.MAX_REMOTE_BLOCK_SIZE_FETCH_TO_MEM)
 
   /**
-    * Initializes the BlockManager with the given appId. This is not performed in the constructor as
-    * the appId may not be known at BlockManager instantiation time (in particular for the driver,
-    * where it is only learned after registration with the TaskScheduler).
-    *
-    * This method initializes the BlockTransferService and ShuffleClient, registers with the
-    * BlockManagerMaster, starts the BlockManagerWorker endpoint, and registers with a local shuffle
-    * service if configured.
-    */
+   * Initializes the BlockManager with the given appId. This is not performed in the constructor as
+   * the appId may not be known at BlockManager instantiation time (in particular for the driver,
+   * where it is only learned after registration with the TaskScheduler).
+   *
+   * This method initializes the BlockTransferService and ShuffleClient, registers with the
+   * BlockManagerMaster, starts the BlockManagerWorker endpoint, and registers with a local shuffle
+   * service if configured.
+   */
   def initialize(appId: String): Unit = {
     blockTransferService.init(this)
     shuffleClient.init(appId)
@@ -301,15 +302,15 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Report all blocks to the BlockManager again. This may be necessary if we are dropped
-    * by the BlockManager and come back or if we become capable of recovering blocks on disk after
-    * an executor crash.
-    *
-    * This function deliberately fails silently if the master returns false (indicating that
-    * the slave needs to re-register). The error condition will be detected again by the next
-    * heart beat attempt or new block registration and another try to re-register all blocks
-    * will be made then.
-    */
+   * Report all blocks to the BlockManager again. This may be necessary if we are dropped
+   * by the BlockManager and come back or if we become capable of recovering blocks on disk after
+   * an executor crash.
+   *
+   * This function deliberately fails silently if the master returns false (indicating that
+   * the slave needs to re-register). The error condition will be detected again by the next
+   * heart beat attempt or new block registration and another try to re-register all blocks
+   * will be made then.
+   */
   private def reportAllBlocks(): Unit = {
     logInfo(s"Reporting ${blockInfoManager.size} blocks to the master.")
     for ((blockId, info) <- blockInfoManager.entries) {
@@ -322,11 +323,11 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Re-register with the master and report all blocks to it. This will be called by the heart beat
-    * thread if our heartbeat to the block manager indicates that we were not registered.
-    *
-    * Note that this method must be called without any BlockInfo locks held.
-    */
+   * Re-register with the master and report all blocks to it. This will be called by the heart beat
+   * thread if our heartbeat to the block manager indicates that we were not registered.
+   *
+   * Note that this method must be called without any BlockInfo locks held.
+   */
   def reregister(): Unit = {
     // TODO: We might need to rate limit re-registering.
     logInfo(s"BlockManager $blockManagerId re-registering with master")
@@ -335,8 +336,8 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Re-register with the master sometime soon.
-    */
+   * Re-register with the master sometime soon.
+   */
   private def asyncReregister(): Unit = {
     asyncReregisterLock.synchronized {
       if (asyncReregisterTask == null) {
@@ -353,8 +354,8 @@ private[spark] class BlockManager(
   }
 
   /**
-    * For testing. Wait for any pending asynchronous re-registration; otherwise, do nothing.
-    */
+   * For testing. Wait for any pending asynchronous re-registration; otherwise, do nothing.
+   */
   def waitForAsyncReregister(): Unit = {
     val task = asyncReregisterTask
     if (task != null) {
@@ -368,9 +369,9 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Interface to get local block data. Throws an exception if the block cannot be found or
-    * cannot be read successfully.
-    */
+   * Interface to get local block data. Throws an exception if the block cannot be found or
+   * cannot be read successfully.
+   */
   override def getBlockData(blockId: BlockId): ManagedBuffer = {
     if (blockId.isShuffle) {
       shuffleManager.shuffleBlockResolver.getBlockData(blockId.asInstanceOf[ShuffleBlockId])
@@ -403,9 +404,9 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Get the BlockStatus for the block identified by the given ID, if it exists.
-    * NOTE: This is mainly for testing.
-    */
+   * Get the BlockStatus for the block identified by the given ID, if it exists.
+   * NOTE: This is mainly for testing.
+   */
   def getStatus(blockId: BlockId): Option[BlockStatus] = {
     blockInfoManager.get(blockId).map { info =>
       val memSize = if (memoryStore.contains(blockId)) memoryStore.getSize(blockId) else 0L
@@ -415,10 +416,10 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Get the ids of existing blocks that match the given filter. Note that this will
-    * query the blocks stored in the disk block manager (that the block manager
-    * may not know of).
-    */
+   * Get the ids of existing blocks that match the given filter. Note that this will
+   * query the blocks stored in the disk block manager (that the block manager
+   * may not know of).
+   */
   def getMatchingBlockIds(filter: BlockId => Boolean): Seq[BlockId] = {
     // The `toArray` is necessary here in order to force the list to be materialized so that we
     // don't try to serialize a lazy iterator when responding to client requests.
@@ -429,14 +430,14 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Tell the master about the current storage status of a block. This will send a block update
-    * message reflecting the current status, *not* the desired storage level in its block info.
-    * For example, a block with MEMORY_AND_DISK set might have fallen out to be only on disk.
-    *
-    * droppedMemorySize exists to account for when the block is dropped from memory to disk (so
-    * it is still valid). This ensures that update in master will compensate for the increase in
-    * memory on slave.
-    */
+   * Tell the master about the current storage status of a block. This will send a block update
+   * message reflecting the current status, *not* the desired storage level in its block info.
+   * For example, a block with MEMORY_AND_DISK set might have fallen out to be only on disk.
+   *
+   * droppedMemorySize exists to account for when the block is dropped from memory to disk (so
+   * it is still valid). This ensures that update in master will compensate for the increase in
+   * memory on slave.
+   */
   private def reportBlockStatus(
       blockId: BlockId,
       status: BlockStatus,
@@ -451,10 +452,10 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Actually send a UpdateBlockInfo message. Returns the master's response,
-    * which will be true if the block was successfully recorded and false if
-    * the slave needs to re-register.
-    */
+   * Actually send a UpdateBlockInfo message. Returns the master's response,
+   * which will be true if the block was successfully recorded and false if
+   * the slave needs to re-register.
+   */
   private def tryToReportBlockStatus(
       blockId: BlockId,
       status: BlockStatus,
@@ -466,10 +467,10 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Return the updated storage status of the block with the given ID. More specifically, if
-    * the block is dropped from memory and possibly added to disk, return the new storage level
-    * and the updated in-memory and on-disk sizes.
-    */
+   * Return the updated storage status of the block with the given ID. More specifically, if
+   * the block is dropped from memory and possibly added to disk, return the new storage level
+   * and the updated in-memory and on-disk sizes.
+   */
   private def getCurrentBlockStatus(blockId: BlockId, info: BlockInfo): BlockStatus = {
     info.synchronized {
       info.level match {
@@ -494,8 +495,8 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Get locations of an array of blocks.
-    */
+   * Get locations of an array of blocks.
+   */
   private def getLocationBlockIds(blockIds: Array[BlockId]): Array[Seq[BlockManagerId]] = {
     val startTimeMs = if (isDebugEnabled) System.currentTimeMillis else 0L
     val locations = master.getLocations(blockIds).toArray
@@ -504,9 +505,9 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Cleanup code run in response to a failed local read.
-    * Must be called while holding a read lock on the block.
-    */
+   * Cleanup code run in response to a failed local read.
+   * Must be called while holding a read lock on the block.
+   */
   private def handleLocalReadFailure(blockId: BlockId): Nothing = {
     releaseLock(blockId)
     // Remove the missing block so that its unavailability is reported to the driver
@@ -515,8 +516,8 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Get block from local block manager as an iterator of Java objects.
-    */
+   * Get block from local block manager as an iterator of Java objects.
+   */
   def getLocalValues(blockId: BlockId): Option[BlockResult] = {
     logDebug(s"Getting local block $blockId")
     blockInfoManager.lockForReading(blockId) match {
@@ -627,10 +628,10 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Get block from remote block managers.
-    *
-    * This does not acquire a lock on this block in this JVM.
-    */
+   * Get block from remote block managers.
+   *
+   * This does not acquire a lock on this block in this JVM.
+   */
   private def getRemoteValues[T: ClassTag](blockId: BlockId): Option[BlockResult] = {
     val ct = implicitly[ClassTag[T]]
     getRemoteBytes(blockId).map { data =>
@@ -658,8 +659,8 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Get block from remote block managers as serialized bytes.
-    */
+   * Get block from remote block managers as serialized bytes.
+   */
   def getRemoteBytes(blockId: BlockId): Option[ChunkedByteBuffer] = {
     logDebug(s"Getting remote block $blockId")
     require(blockId != null, "BlockId is null")
@@ -734,12 +735,12 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Get a block from the block manager (either local or remote).
-    *
-    * This acquires a read lock on the block if the block was stored locally and does not acquire
-    * any locks if the block was fetched from a remote block manager. The read lock will
-    * automatically be freed once the result's `data` iterator is fully consumed.
-    */
+   * Get a block from the block manager (either local or remote).
+   *
+   * This acquires a read lock on the block if the block was stored locally and does not acquire
+   * any locks if the block was fetched from a remote block manager. The read lock will
+   * automatically be freed once the result's `data` iterator is fully consumed.
+   */
   def get[T: ClassTag](blockId: BlockId): Option[BlockResult] = {
     val local = getLocalValues(blockId)
     if (local.isDefined) {
@@ -755,8 +756,8 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Downgrades an exclusive write lock to a shared read lock.
-    */
+   * Downgrades an exclusive write lock to a shared read lock.
+   */
   def downgradeLock(blockId: BlockId): Unit = {
     blockInfoManager.downgradeLock(blockId)
   }
@@ -772,28 +773,28 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Registers a task with the BlockManager in order to initialize per-task bookkeeping structures.
-    */
+   * Registers a task with the BlockManager in order to initialize per-task bookkeeping structures.
+   */
   def registerTask(taskAttemptId: Long): Unit = {
     blockInfoManager.registerTask(taskAttemptId)
   }
 
   /**
-    * Release all locks for the given task.
-    *
-    * @return the blocks whose locks were released.
-    */
+   * Release all locks for the given task.
+   *
+   * @return the blocks whose locks were released.
+   */
   def releaseAllLocksForTask(taskAttemptId: Long): Seq[BlockId] = {
     blockInfoManager.releaseAllLocksForTask(taskAttemptId)
   }
 
   /**
-    * Retrieve the given block if it exists, otherwise call the provided `makeIterator` method
-    * to compute the block, persist it, and return its values.
-    *
-    * @return either a BlockResult if the block was successfully cached, or an iterator if the block
-    *         could not be cached.
-    */
+   * Retrieve the given block if it exists, otherwise call the provided `makeIterator` method
+   * to compute the block, persist it, and return its values.
+   *
+   * @return either a BlockResult if the block was successfully cached, or an iterator if the block
+   *         could not be cached.
+   */
   def getOrElseUpdate[T](
       blockId: BlockId,
       level: StorageLevel,
@@ -832,8 +833,8 @@ private[spark] class BlockManager(
   }
 
   /**
-    * @return true if the block was stored or false if an error occurred.
-    */
+   * @return true if the block was stored or false if an error occurred.
+   */
   def putIterator[T: ClassTag](
       blockId: BlockId,
       values: Iterator[T],
@@ -852,10 +853,10 @@ private[spark] class BlockManager(
   }
 
   /**
-    * A short circuited method to get a block writer that can write data directly to disk.
-    * The Block will be appended to the File specified by filename. Callers should handle error
-    * cases.
-    */
+   * A short circuited method to get a block writer that can write data directly to disk.
+   * The Block will be appended to the File specified by filename. Callers should handle error
+   * cases.
+   */
   def getDiskWriter(
       blockId: BlockId,
       file: File,
@@ -985,11 +986,11 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Helper method used to abstract common code from [[doPutBytes()]] and [[doPutIterator()]].
-    *
-    * @param putBody a function which attempts the actual put() and returns None on success
-    *                or Some on failure.
-    */
+   * Helper method used to abstract common code from [[doPutBytes()]] and [[doPutIterator()]].
+   *
+   * @param putBody a function which attempts the actual put() and returns None on success
+   *                or Some on failure.
+   */
   private def doPut[T](
       blockId: BlockId,
       level: StorageLevel,
@@ -1064,17 +1065,17 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Put the given block according to the given level in one of the block stores, replicating
-    * the values if necessary.
-    *
-    * If the block already exists, this method will not overwrite it.
-    *
-    * @param keepReadLock if true, this method will hold the read lock when it returns (even if the
-    *                     block already exists). If false, this method will hold no locks when it
-    *                     returns.
-    * @return None if the block was already present or if the put succeeded, or Some(iterator)
-    *         if the put failed.
-    */
+   * Put the given block according to the given level in one of the block stores, replicating
+   * the values if necessary.
+   *
+   * If the block already exists, this method will not overwrite it.
+   *
+   * @param keepReadLock if true, this method will hold the read lock when it returns (even if the
+   *                     block already exists). If false, this method will hold no locks when it
+   *                     returns.
+   * @return None if the block was already present or if the put succeeded, or Some(iterator)
+   *         if the put failed.
+   */
   private def doPutIterator[T](
       blockId: BlockId,
       iterator: () => Iterator[T],
@@ -1171,14 +1172,14 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Attempts to cache spilled bytes read from disk into the MemoryStore in order to speed up
-    * subsequent reads. This method requires the caller to hold a read lock on the block.
-    *
-    * @return a copy of the bytes from the memory store if the put succeeded, otherwise None.
-    *         If this returns bytes from the memory store then the original disk store bytes will
-    *         automatically be disposed and the caller should not continue to use them. Otherwise,
-    *         if this returns None then the original disk store bytes will be unaffected.
-    */
+   * Attempts to cache spilled bytes read from disk into the MemoryStore in order to speed up
+   * subsequent reads. This method requires the caller to hold a read lock on the block.
+   *
+   * @return a copy of the bytes from the memory store if the put succeeded, otherwise None.
+   *         If this returns bytes from the memory store then the original disk store bytes will
+   *         automatically be disposed and the caller should not continue to use them. Otherwise,
+   *         if this returns None then the original disk store bytes will be unaffected.
+   */
   private def maybeCacheDiskBytesInMemory(
       blockInfo: BlockInfo,
       blockId: BlockId,
@@ -1218,12 +1219,12 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Attempts to cache spilled values read from disk into the MemoryStore in order to speed up
-    * subsequent reads. This method requires the caller to hold a read lock on the block.
-    *
-    * @return a copy of the iterator. The original iterator passed this method should no longer
-    *         be used after this method returns.
-    */
+   * Attempts to cache spilled values read from disk into the MemoryStore in order to speed up
+   * subsequent reads. This method requires the caller to hold a read lock on the block.
+   *
+   * @return a copy of the iterator. The original iterator passed this method should no longer
+   *         be used after this method returns.
+   */
   private def maybeCacheDiskValuesInMemory[T](
       blockInfo: BlockInfo,
       blockId: BlockId,
@@ -1255,8 +1256,8 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Get peer block managers in the system.
-    */
+   * Get peer block managers in the system.
+   */
   private def getPeers(forceFetch: Boolean): Seq[BlockManagerId] = {
     peerFetchLock.synchronized {
       val cachedPeersTtl = conf.getInt("spark.storage.cachedPeersTtl", 60 * 1000) // milliseconds
@@ -1388,18 +1389,18 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Read a block consisting of a single object.
-    */
+   * Read a block consisting of a single object.
+   */
   def getSingle[T: ClassTag](blockId: BlockId): Option[T] = {
     get[T](blockId).map(_.data.next().asInstanceOf[T])
   }
 
   /**
-    * Write a block consisting of a single object.
-    *
-    * @return true if the block was stored or false if the block was already stored or an
-    *         error occurred.
-    */
+   * Write a block consisting of a single object.
+   *
+   * @return true if the block was stored or false if the block was already stored or an
+   *         error occurred.
+   */
   def putSingle[T: ClassTag](
       blockId: BlockId,
       value: T,
@@ -1409,16 +1410,16 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Drop a block from memory, possibly putting it on disk if applicable. Called when the memory
-    * store reaches its limit and needs to free up space.
-    *
-    * If `data` is not put on disk, it won't be created.
-    *
-    * The caller of this method must hold a write lock on the block before calling this method.
-    * This method does not release the write lock.
-    *
-    * @return the block's new effective StorageLevel.
-    */
+   * Drop a block from memory, possibly putting it on disk if applicable. Called when the memory
+   * store reaches its limit and needs to free up space.
+   *
+   * If `data` is not put on disk, it won't be created.
+   *
+   * The caller of this method must hold a write lock on the block before calling this method.
+   * This method does not release the write lock.
+   *
+   * @return the block's new effective StorageLevel.
+   */
   private[storage] override def dropFromMemory[T: ClassTag](
       blockId: BlockId,
       data: () => Either[Array[T], ChunkedByteBuffer]): StorageLevel = {
@@ -1466,10 +1467,10 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Remove all blocks belonging to the given RDD.
-    *
-    * @return The number of blocks removed.
-    */
+   * Remove all blocks belonging to the given RDD.
+   *
+   * @return The number of blocks removed.
+   */
   def removeRdd(rddId: Int): Int = {
     // TODO: Avoid a linear scan by creating another mapping of RDD.id to blocks.
     logInfo(s"Removing RDD $rddId")
@@ -1479,8 +1480,8 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Remove all blocks belonging to the given broadcast.
-    */
+   * Remove all blocks belonging to the given broadcast.
+   */
   def removeBroadcast(broadcastId: Long, tellMaster: Boolean): Int = {
     logDebug(s"Removing broadcast $broadcastId")
     val blocksToRemove = blockInfoManager.entries.map(_._1).collect {
@@ -1491,8 +1492,8 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Remove a block from both memory and disk.
-    */
+   * Remove a block from both memory and disk.
+   */
   def removeBlock(blockId: BlockId, tellMaster: Boolean = true): Unit = {
     logDebug(s"Removing block $blockId")
     blockInfoManager.lockForWriting(blockId) match {
@@ -1506,9 +1507,9 @@ private[spark] class BlockManager(
   }
 
   /**
-    * Internal version of [[removeBlock()]] which assumes that the caller already holds a write
-    * lock on the block.
-    */
+   * Internal version of [[removeBlock()]] which assumes that the caller already holds a write
+   * lock on the block.
+   */
   private def removeBlockInternal(blockId: BlockId, tellMaster: Boolean): Unit = {
     // Removals are idempotent in disk store and memory store. At worst, we get a warning.
     val removedFromMemory = memoryStore.remove(blockId)
@@ -1577,6 +1578,7 @@ private[spark] object BlockManager {
     }
     blockManagers.toMap
   }
+<<<<<<< HEAD
 
   private class ShuffleMetricsSource(
       override val sourceName: String,

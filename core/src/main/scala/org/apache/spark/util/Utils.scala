@@ -81,9 +81,9 @@ import org.apache.spark.internal.config._
 import org.apache.spark.launcher.SparkLauncher
 import org.apache.spark.network.util.JavaUtils
 import org.apache.spark.serializer.{DeserializationStream, SerializationStream, SerializerInstance}
-import org.apache.spark.util.logging.RollingFileAppender
 import org.apache.spark.storage.StorageUtils
-import org.apache.spark.unsafe.types.UTF8String;
+import org.apache.spark.unsafe.types.UTF8String
+import org.apache.spark.util.logging.RollingFileAppender
 
 /** CallSite represents a place in user code. It can have a short and a long form. */
 private[spark] case class CallSite(shortForm: String, longForm: String)
