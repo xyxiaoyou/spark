@@ -31,6 +31,9 @@ dependencies {
   compile project(subprojectBase + 'snappy-spark-yarn_' + scalaBinaryVersion)
   compile project(subprojectBase + 'snappy-spark-mllib_' + scalaBinaryVersion)
   compile project(subprojectBase + 'snappy-spark-graphx_' + scalaBinaryVersion)
+  if (rootProject.hasProperty('mesos')) {
+    compile project(subprojectBase + 'snappy-spark-mesos_' + scalaBinaryVersion)
+  }
   if (rootProject.hasProperty('ganglia')) {
     compile project(subprojectBase + 'snappy-spark-ganglia-lgpl_' + scalaBinaryVersion)
   }

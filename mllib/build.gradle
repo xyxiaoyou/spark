@@ -29,7 +29,7 @@ dependencies {
     exclude(group: 'junit', module: 'junit')
     exclude(group: 'org.apache.commons', module: 'commons-math3')
   }
-  compile group: 'org.apache.commons', name: 'commons-math3', version: '3.4.1'
+  compile group: 'org.apache.commons', name: 'commons-math3', version: commonsMath3Version
   compile(group: 'org.jpmml', name: 'pmml-model', version: '1.2.15') {
     exclude(group: 'org.jpmml', module: 'pmml-agent')
   }

@@ -14,6 +14,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/*
+ * Changes for SnappyData data platform.
+ *
+ * Portions Copyright (c) 2017 SnappyData, Inc. All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you
+ * may not use this file except in compliance with the License. You
+ * may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+ * implied. See the License for the specific language governing
+ * permissions and limitations under the License. See accompanying
+ * LICENSE file.
+ */
 
 package org.apache.spark.sql.catalyst.plans.logical
 
@@ -412,32 +430,17 @@ case class InsertIntoTable(
     child: LogicalPlan,
     overwrite: OverwriteOptions,
     ifNotExists: Boolean)
-    extends LogicalPlan {
+  extends LogicalPlan {
 
   override def children: Seq[LogicalPlan] = child :: Nil
   override def output: Seq[Attribute] = Seq.empty
 
-  lazy val expectedColumns = {
-    if (table.output.isEmpty) {
-      None
-    } else {
-      // Note: The parser (visitPartitionSpec in AstBuilder) already turns
-      // keys in partition to their lowercase forms.
-      val staticPartCols = partition.filter(_._2.isDefined).keySet
-      Some(table.output.filterNot(a => staticPartCols.contains(a.name)))
-    }
-  }
-
   assert(overwrite.enabled || !ifNotExists)
   assert(partition.values.forall(_.nonEmpty) || !ifNotExists)
-  override lazy val resolved: Boolean =
-    childrenResolved && table.resolved && expectedColumns.forall { expected =>
-      child.output.size == expected.size && child.output.zip(expected).forall {
-        case (childAttr, tableAttr) =>
-          DataType.equalsIgnoreCompatibleNullability(childAttr.dataType, tableAttr.dataType)
-      }
-    }
+
+  override lazy val resolved: Boolean = childrenResolved && table.resolved
 }
+
 /**
  * A container for holding named common table expressions (CTEs) and a query plan.
  * This operator will be removed during analysis and the relations will be substituted into child.

@@ -44,31 +44,58 @@ public class ByteArrayMethods {
    * Optimized byte array equality check for byte arrays.
    * @return true if the arrays are equal, false otherwise
    */
-  public static boolean arrayEquals(
-      final Object leftBase, long leftOffset, final Object rightBase,
-      long rightOffset, final long length) {
-    long endOffset = leftOffset + length - 8;
-    while (leftOffset <= endOffset) {
-      if (Platform.getLong(leftBase, leftOffset) !=
-        Platform.getLong(rightBase, rightOffset)) {
-        return false;
+  public static boolean arrayEquals(final Object leftBase, long leftOffset,
+      final Object rightBase, long rightOffset, final long length) {
+    // try to align at least one side
+    if ((rightOffset & 0x7) != 0 && (leftOffset & 0x7) != 0) { // mod 8
+      final long endOffset = Math.min(((leftOffset + 7) >>> 3) << 3, leftOffset + length);
+      if (Platform.unaligned()) {
+        if (leftOffset <= (endOffset - 4)) {
+          if (Platform.getInt(leftBase, leftOffset) !=
+              Platform.getInt(rightBase, rightOffset)) {
+            return false;
+          }
+          leftOffset += 4;
+          rightOffset += 4;
+        }
       }
-      leftOffset += 8;
-      rightOffset += 8;
-    }
-    endOffset += 4;
-    while (leftOffset <= endOffset) {
-      if (Platform.getInt(leftBase, leftOffset) !=
-          Platform.getInt(rightBase, rightOffset)) {
-        return false;
+      while (leftOffset < endOffset) {
+        if (Platform.getByte(leftBase, leftOffset) !=
+            Platform.getByte(rightBase, rightOffset)) {
+          return false;
+        }
+        leftOffset++;
+        rightOffset++;
       }
-      leftOffset += 4;
-      rightOffset += 4;
     }
-    endOffset += 4;
+    long endOffset = leftOffset + length;
+    // for architectures that support unaligned accesses, chew it up 8 bytes at a time
+    if (Platform.unaligned() || (((leftOffset & 0x7) == 0) && ((rightOffset & 0x7) == 0))) {
+      endOffset -= 8;
+      while (leftOffset <= endOffset) {
+        if (Platform.getLong(leftBase, leftOffset) !=
+            Platform.getLong(rightBase, rightOffset)) {
+          return false;
+        }
+        leftOffset += 8;
+        rightOffset += 8;
+      }
+      endOffset += 4;
+      if (leftOffset <= endOffset) {
+        if (Platform.getInt(leftBase, leftOffset) !=
+            Platform.getInt(rightBase, rightOffset)) {
+          return false;
+        }
+        leftOffset += 4;
+        rightOffset += 4;
+      }
+      endOffset += 4;
+    }
+    // this will finish off the unaligned comparisons, or do the entire aligned
+    // comparison whichever is needed.
     while (leftOffset < endOffset) {
       if (Platform.getByte(leftBase, leftOffset) !=
-        Platform.getByte(rightBase, rightOffset)) {
+          Platform.getByte(rightBase, rightOffset)) {
         return false;
       }
       leftOffset++;

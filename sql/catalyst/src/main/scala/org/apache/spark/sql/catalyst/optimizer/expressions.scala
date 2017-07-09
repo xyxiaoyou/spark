@@ -518,7 +518,9 @@ case class OptimizeCodegen(conf: CatalystConf) extends Rule[LogicalPlan] {
  */
 object SimplifyCasts extends Rule[LogicalPlan] {
   def apply(plan: LogicalPlan): LogicalPlan = plan transformAllExpressions {
-    case Cast(e, dataType) if e.dataType == dataType => e
+    case Cast(e, dataType) if e.dataType == dataType ||
+        (e.dataType.getClass == dataType.getClass &&
+            e.dataType.asNullable == dataType) => e
     case c @ Cast(e, dataType) => (e.dataType, dataType) match {
       case (ArrayType(from, false), ArrayType(to, true)) if from == to => e
       case (MapType(fromKey, fromValue, false), MapType(toKey, toValue, true))

@@ -64,12 +64,12 @@ private[spark] class ShuffleMapTask(
     @transient private var locs: Seq[TaskLocation],
     metrics: TaskMetrics,
     localProperties: Properties,
-    jobId: Option[Int] = None,
+    jobId: Int = -1,
     appId: Option[String] = None,
     appAttemptId: Option[String] = None)
   extends Task[MapStatus](stageId, stageAttemptId, partition.index, _taskData,
     _taskBinary, metrics, localProperties, jobId, appId, appAttemptId)
-with KryoSerializable with Logging {
+  with KryoSerializable with Logging {
 
   /** A constructor used only in test suites. This does not require passing in an RDD. */
   def this(partitionId: Int) {
@@ -93,7 +93,7 @@ with KryoSerializable with Logging {
       ByteBuffer.wrap(getTaskBytes), Thread.currentThread.getContextClassLoader)
     _executorDeserializeTime = math.max(System.nanoTime() - deserializeStartTime, 0L)
     _executorDeserializeCpuTime = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
-      threadMXBean.getCurrentThreadCpuTime - deserializeStartCpuTime
+      math.max(threadMXBean.getCurrentThreadCpuTime - deserializeStartCpuTime, 0L)
     } else 0L
 
     var writer: ShuffleWriter[Any, Any] = null

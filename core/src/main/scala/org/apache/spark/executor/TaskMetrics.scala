@@ -48,9 +48,9 @@ import org.apache.spark.util._
 class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
   // Each metric is internally represented as an accumulator
   private val _executorDeserializeTime = new DoubleAccumulator
-  private val _executorDeserializeCpuTime = new LongAccumulator
+  private val _executorDeserializeCpuTime = new DoubleAccumulator
   private val _executorRunTime = new DoubleAccumulator
-  private val _executorCpuTime = new LongAccumulator
+  private val _executorCpuTime = new DoubleAccumulator
   private val _resultSize = new LongAccumulator
   private val _jvmGCTime = new LongAccumulator
   private val _resultSerializationTime = new DoubleAccumulator
@@ -67,7 +67,7 @@ class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
   /**
    * CPU Time taken on the executor to deserialize this task in nanoseconds.
    */
-  def executorDeserializeCpuTime: Long = _executorDeserializeCpuTime.sum
+  def executorDeserializeCpuTime: Long = _executorDeserializeCpuTime.sum.toLong
 
   /**
    * Time the executor spends actually running the task (including fetching shuffle data).
@@ -78,7 +78,7 @@ class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
    * CPU Time the executor spends actually running the task
    * (including fetching shuffle data) in nanoseconds.
    */
-  def executorCpuTime: Long = _executorCpuTime.sum
+  def executorCpuTime: Long = _executorCpuTime.sum.toLong
 
   /**
    * The number of bytes this task transmitted back to the driver as the TaskResult.
@@ -125,10 +125,10 @@ class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
   // Setters and increment-ers
   private[spark] def setExecutorDeserializeTime(v: Double): Unit =
     _executorDeserializeTime.setValue(v)
-  private[spark] def setExecutorDeserializeCpuTime(v: Long): Unit =
+  private[spark] def setExecutorDeserializeCpuTime(v: Double): Unit =
     _executorDeserializeCpuTime.setValue(v)
   private[spark] def setExecutorRunTime(v: Double): Unit = _executorRunTime.setValue(v)
-  private[spark] def setExecutorCpuTime(v: Long): Unit = _executorCpuTime.setValue(v)
+  private[spark] def setExecutorCpuTime(v: Double): Unit = _executorCpuTime.setValue(v)
   private[spark] def setResultSize(v: Long): Unit = _resultSize.setValue(v)
   private[spark] def setJvmGCTime(v: Long): Unit = _jvmGCTime.setValue(v)
   private[spark] def setResultSerializationTime(v: Double): Unit =
