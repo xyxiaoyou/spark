@@ -190,9 +190,10 @@ public class UnsafeArrayWriter {
       } else {
         final byte[] bytes = input.toJavaBigDecimal().unscaledValue().toByteArray();
         final int numBytes = bytes.length;
-        // assert numBytes <= 16;
+        assert numBytes <= 16;
         int roundedSize = ByteArrayMethods.roundNumberOfBytesToNearestWord(numBytes);
         holder.grow(roundedSize);
+
         zeroOutPaddingBytes(numBytes);
 
         // Write the bytes to the variable length portion.

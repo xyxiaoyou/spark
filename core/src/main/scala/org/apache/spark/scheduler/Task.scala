@@ -67,7 +67,7 @@ private[spark] abstract class Task[T](
     // The default value is only used in tests.
     serializedTaskMetrics: Array[Byte] =
       SparkEnv.get.closureSerializer.newInstance().serialize(TaskMetrics.registered).array(),
-    private var _jobId: Option[Int] = None,
+    private var _jobId: Int = -1,
     private var _appId: Option[String] = None,
     private var _appAttemptId: Option[String] = None) extends Serializable {
 
@@ -80,11 +80,13 @@ private[spark] abstract class Task[T](
   @transient lazy val metrics: TaskMetrics =
     SparkEnv.get.closureSerializer.newInstance().deserialize(ByteBuffer.wrap(serializedTaskMetrics))
 
-  final def jobId: Int = _jobId.get
+  final def jobId: Int = _jobId
 
-  final def appId: String = _appId.get
+  final def metrics: TaskMetrics = _metrics
 
-  final def appAttemptId: String = _appAttemptId.get
+  final def appId: String = if (_appId.isDefined) _appId.get else null
+
+  final def appAttemptId: String = if (_appAttemptId.isDefined) _appAttemptId.get else null
 
   @transient private[spark] var taskDataBytes: Array[Byte] = _
 
@@ -251,8 +253,10 @@ private[spark] abstract class Task[T](
     output.writeInt(_stageId)
     output.writeVarInt(_stageAttemptId, true)
     output.writeVarInt(_partitionId, true)
+    output.writeVarInt(_jobId, true)
     output.writeLong(epoch)
     output.writeLong(_executorDeserializeTime)
+    output.writeLong(_executorDeserializeCpuTime)
     if ((taskData ne null) && taskData.uncompressedLen > 0) {
       // actual bytes will be shipped in TaskDescription
       output.writeBoolean(true)
@@ -261,17 +265,18 @@ private[spark] abstract class Task[T](
       kryo.writeClassAndObject(output, taskBinary.get)
     }
     _metrics.write(kryo, output)
-    output.writeInt(_jobId.get)
-    output.writeString(_appId.get)
-    output.writeString(_appAttemptId.get)
+    output.writeString(appId)
+    output.writeString(appAttemptId)
   }
 
   def readKryo(kryo: Kryo, input: Input): Unit = {
     _stageId = input.readInt()
     _stageAttemptId = input.readVarInt(true)
     _partitionId = input.readVarInt(true)
+    _jobId = input.readVarInt(true)
     epoch = input.readLong()
     _executorDeserializeTime = input.readLong()
+    _executorDeserializeCpuTime = input.readLong()
     // actual bytes are shipped in TaskDescription
     taskData = TaskData.EMPTY
     if (input.readBoolean()) {
@@ -282,9 +287,8 @@ private[spark] abstract class Task[T](
     }
     _metrics = new TaskMetrics
     _metrics.read(kryo, input)
-    _jobId = Some(input.readInt())
-    _appId = Some(input.readString())
-    _appAttemptId = Some(input.readString())
+    _appId = Option(input.readString())
+    _appAttemptId = Option(input.readString())
   }
 }
 

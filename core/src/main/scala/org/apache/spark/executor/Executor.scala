@@ -412,13 +412,14 @@ private[spark] class Executor(
         // includes the Partition. Second, Task.run() deserializes the RDD and function to be run.
         task.metrics.setExecutorDeserializeTime(math.max(
           taskStart - deserializeStartTime + task.executorDeserializeTime, 0L) / 1000000.0)
-        task.metrics.setExecutorDeserializeCpuTime(
-          (taskStartCpu - deserializeStartCpuTime) + task.executorDeserializeCpuTime)
+        task.metrics.setExecutorDeserializeCpuTime(math.max(
+          taskStartCpu - deserializeStartCpuTime + task.executorDeserializeCpuTime, 0L) /
+            1000000.0)
         // We need to subtract Task.run()'s deserialization time to avoid double-counting
         task.metrics.setExecutorRunTime(math.max(
           taskFinish - taskStart - task.executorDeserializeTime, 0L) / 1000000.0)
-        task.metrics.setExecutorCpuTime(
-          (taskFinishCpu - taskStartCpu) - task.executorDeserializeCpuTime)
+        task.metrics.setExecutorCpuTime(math.max(
+          taskFinishCpu - taskStartCpu - task.executorDeserializeCpuTime, 0L) / 1000000.0)
         task.metrics.setJvmGCTime(computeTotalGcTime() - startGCTime)
 
         // Expose task metrics using the Dropwizard metrics system.

@@ -34,6 +34,7 @@ include ':snappy-spark-catalyst_' + scalaBinaryVersion
 include ':snappy-spark-sql_' + scalaBinaryVersion
 include ':snappy-spark-hive_' + scalaBinaryVersion
 include ':snappy-spark-hive-thriftserver_' + scalaBinaryVersion
+include ':snappy-spark-mesos_' + scalaBinaryVersion
 include ':snappy-spark-unsafe_' + scalaBinaryVersion
 include ':snappy-spark-assembly_' + scalaBinaryVersion
 include ':snappy-spark-streaming-flume_' + scalaBinaryVersion
@@ -62,6 +63,7 @@ project(':snappy-spark-catalyst_' + scalaBinaryVersion).projectDir = "$rootDir/s
 project(':snappy-spark-sql_' + scalaBinaryVersion).projectDir = "$rootDir/sql/core" as File
 project(':snappy-spark-hive_' + scalaBinaryVersion).projectDir = "$rootDir/sql/hive" as File
 project(':snappy-spark-hive-thriftserver_' + scalaBinaryVersion).projectDir = "$rootDir/sql/hive-thriftserver" as File
+project(':snappy-spark-mesos_' + scalaBinaryVersion).projectDir = "$rootDir/mesos" as File
 project(':snappy-spark-unsafe_' + scalaBinaryVersion).projectDir = "$rootDir/common/unsafe" as File
 project(':snappy-spark-assembly_' + scalaBinaryVersion).projectDir = "$rootDir/assembly" as File
 project(':snappy-spark-streaming-flume_' + scalaBinaryVersion).projectDir = "$rootDir/external/flume" as File

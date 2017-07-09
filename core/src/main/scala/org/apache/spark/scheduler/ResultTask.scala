@@ -63,8 +63,8 @@ private[spark] class ResultTask[T, U](
     locs: Seq[TaskLocation],
     private var _outputId: Int,
     localProperties: Properties,
-    serializedTaskMetrics: Array[Byte],
-    jobId: Option[Int] = None,
+    metrics: TaskMetrics,
+    jobId: Int = -1,
     appId: Option[String] = None,
     appAttemptId: Option[String] = None)
   extends Task[U](stageId, stageAttemptId, partition.index, _taskData,
@@ -89,7 +89,7 @@ private[spark] class ResultTask[T, U](
       ByteBuffer.wrap(getTaskBytes), Thread.currentThread.getContextClassLoader)
     _executorDeserializeTime = math.max(System.nanoTime() - deserializeStartTime, 0L)
     _executorDeserializeCpuTime = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
-      threadMXBean.getCurrentThreadCpuTime - deserializeStartCpuTime
+      math.max(threadMXBean.getCurrentThreadCpuTime - deserializeStartCpuTime, 0L)
     } else 0L
 
     func(context, rdd.iterator(partition, context))

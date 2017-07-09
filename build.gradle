@@ -79,6 +79,8 @@ allprojects {
     seleniumVersion = '2.52.0'
     curatorVersion = '2.7.1'
     commonsCodecVersion = '1.10'
+    commonsLang3Version = '3.5'
+    commonsMath3Version = '3.4.1'
     avroVersion = '1.7.7'
     jsr305Version = '3.0.1'
     jlineVersion = '2.14.2'

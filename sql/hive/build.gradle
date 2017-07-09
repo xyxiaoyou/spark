@@ -47,6 +47,7 @@ dependencies {
     exclude(group: 'commons-logging', module: 'commons-logging')
     exclude(group: 'org.codehaus.groovy', module: 'groovy-all')
     exclude(group: 'jline', module: 'jline')
+    exclude(group: 'org.json', module: 'json')
   }
   compile(group: 'org.spark-project.hive', name: 'hive-metastore', version: hiveVersion) {
     exclude(group: 'org.spark-project.hive', module: 'hive-serde')
@@ -57,6 +58,7 @@ dependencies {
     exclude(group: 'com.google.guava', module: 'guava')
     exclude(group: 'org.slf4j', module: 'slf4j-api')
     exclude(group: 'org.slf4j', module: 'slf4j-log4j12')
+    exclude(group: 'log4j', module: 'log4j')
     exclude(group: 'org.apache.derby', module: 'derby')
   }
 
