@@ -71,6 +71,9 @@ private[deploy] class SparkSubmitArguments(args: Seq[String], env: Map[String, S
   var principal: String = null
   var keytab: String = null
 
+  // Kubernetes only
+  var kubernetesNamespace: String = null
+
   // Standalone cluster mode only
   var supervise: Boolean = false
   var driverCores: String = null
@@ -193,6 +196,9 @@ private[deploy] class SparkSubmitArguments(args: Seq[String], env: Map[String, S
     queue = Option(queue).orElse(sparkProperties.get("spark.yarn.queue")).orNull
     keytab = Option(keytab).orElse(sparkProperties.get("spark.yarn.keytab")).orNull
     principal = Option(principal).orElse(sparkProperties.get("spark.yarn.principal")).orNull
+    kubernetesNamespace = Option(kubernetesNamespace)
+      .orElse(sparkProperties.get("spark.kubernetes.namespace"))
+      .orNull
 
     // Try to set main class from JAR if no --class argument is given
     if (mainClass == null && !isPython && !isR && primaryResource != null) {
@@ -430,6 +436,9 @@ private[deploy] class SparkSubmitArguments(args: Seq[String], env: Map[String, S
 
       case KEYTAB =>
         keytab = value
+
+      case KUBERNETES_NAMESPACE =>
+        kubernetesNamespace = value
 
       case HELP =>
         printUsageAndExit(0)

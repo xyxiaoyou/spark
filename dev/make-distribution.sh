@@ -168,6 +168,11 @@ echo "Build flags: $@" >> "$DISTDIR/RELEASE"
 # Copy jars
 cp "$SPARK_HOME"/assembly/target/scala*/jars/* "$DISTDIR/jars/"
 
+# Copy docker files
+mkdir -p "$DISTDIR/dockerfiles"
+DOCKERFILES_SRC="$SPARK_HOME/resource-managers/kubernetes/docker-minimal-bundle/src/main/docker"
+cp -R "$DOCKERFILES_SRC/." "$DISTDIR/dockerfiles/."
+
 # Only create the yarn directory if the yarn artifacts were build.
 if [ -f "$SPARK_HOME"/common/network-yarn/target/scala*/spark-*-yarn-shuffle.jar ]; then
   mkdir "$DISTDIR/yarn"
@@ -237,8 +242,9 @@ else
 fi
 
 # Copy other things
-mkdir "$DISTDIR/conf"
-cp "$SPARK_HOME"/conf/*.template "$DISTDIR/conf"
+mkdir "$DISTDIR"/conf
+cp "$SPARK_HOME"/conf/*.template "$DISTDIR"/conf
+cp "$SPARK_HOME"/conf/*.yaml "$DISTDIR"/conf
 cp "$SPARK_HOME/README.md" "$DISTDIR"
 cp -r "$SPARK_HOME/bin" "$DISTDIR"
 cp -r "$SPARK_HOME/python" "$DISTDIR"
