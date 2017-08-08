@@ -21,6 +21,7 @@ import java.util.{Date, List => JList, ServiceLoader}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.HashMap
 
 import org.apache.spark.{JobExecutionStatus, SecurityManager, SparkConf, SparkContext}
 import org.apache.spark.internal.Logging
@@ -160,14 +161,14 @@ private[spark] object SparkUI {
   val STATIC_RESOURCE_DIR = "org/apache/spark/ui/static"
   val DEFAULT_POOL_NAME = "default"
 
-  var productVersion: String = new String()
+  var productVersion: HashMap[String, String] = HashMap.empty[String, String]
 
-  def getProductVersion: String = {
+  def getProductVersion: HashMap[String, String] = {
     productVersion
   }
 
-  def setProductVersion(version: String): Unit = {
-    productVersion = version
+  def setProductVersion(versionDetails: HashMap[String, String]): Unit = {
+    productVersion = versionDetails
   }
 
   def getUIPort(conf: SparkConf): Int = {
