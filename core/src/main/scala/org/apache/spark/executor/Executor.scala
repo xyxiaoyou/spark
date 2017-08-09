@@ -64,7 +64,7 @@ private[spark] class Executor(
 
   private val EMPTY_BYTE_BUFFER = ByteBuffer.wrap(new Array[Byte](0))
 
-  private val conf = env.conf
+  protected val conf = env.conf
 
   // No ip or host:port - just hostname
   Utils.checkHost(executorHostname, "Expected executed slave to be a hostname")
@@ -108,8 +108,8 @@ private[spark] class Executor(
 
   // Create our ClassLoader
   // do this after SparkEnv creation so can access the SecurityManager
-  protected var urlClassLoader = createClassLoader()
-  protected var replClassLoader = addReplClassLoaderIfNeeded(urlClassLoader)
+  protected val urlClassLoader = createClassLoader()
+  protected val replClassLoader = addReplClassLoaderIfNeeded(urlClassLoader)
 
   // Set the classloader for serializer
   env.serializer.setDefaultClassLoader(replClassLoader)
