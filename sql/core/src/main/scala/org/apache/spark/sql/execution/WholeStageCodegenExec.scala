@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+
 package org.apache.spark.sql.execution
 
 import java.util.Locale
@@ -25,6 +26,8 @@ import scala.collection.mutable
 import org.apache.spark.broadcast
 import org.apache.spark.rdd.RDD
 import com.esotericsoftware.kryo.io.{Input, Output}
+import scala.util.control.Exception.catching
+
 import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
 import com.esotericsoftware.kryo.io.{Input, Output}
 
@@ -712,7 +715,14 @@ case class CollapseCodegenStages(conf: SQLConf) extends Rule[SparkPlan] {
   }
 }
 
+<<<<<<< HEAD
 class WholeStageCodegenRDD(sc: SparkContext, var source: CodeAndComment,
+||||||| parent of e3f2e3d... Snap 1833 (#67)
+
+case class WholeStageCodegenRDD(@transient sc: SparkContext, var source: CodeAndComment,
+=======
+case class WholeStageCodegenRDD(@transient sc: SparkContext, var source: CodeAndComment,
+>>>>>>> e3f2e3d... Snap 1833 (#67)
     var references: Array[Any], var durationMs: SQLMetric,
     inputRDDs: Seq[RDD[InternalRow]])
     extends ZippedPartitionsBaseRDD[InternalRow](sc, inputRDDs)
@@ -729,6 +739,26 @@ class WholeStageCodegenRDD(sc: SparkContext, var source: CodeAndComment,
   }
 
   override def compute(split: Partition,
+      context: TaskContext): Iterator[InternalRow] = {
+    val catcher = catching(classOf[ClassCastException])
+    new Iterator[InternalRow] {
+      private[this] var i = computeInternal(split, context)
+
+      private[this] def replace() = i = {
+        logInfo(s"ClassCast Exception, hence recompiling")
+        CodeGenerator.invalidate(source)
+        computeInternal(split, context)
+      }
+
+      override def hasNext: Boolean = catcher.opt(i.hasNext).getOrElse {
+        replace(); hasNext
+      }
+
+      override def next(): InternalRow = i.next()
+    }
+  }
+
+  def computeInternal(split: Partition,
       context: TaskContext): Iterator[InternalRow] = {
     val clazz = CodeGenerator.compile(source)
     val buffer = clazz.generate(references).asInstanceOf[BufferedRowIterator]

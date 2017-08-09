@@ -1386,6 +1386,10 @@ object CodeGenerator extends Logging {
       throw e.getCause
   }
 
+  def invalidate(code: CodeAndComment) : Unit = {
+    cache.invalidate(code)
+  }
+
   /**
    * Compile the Java source code into a Java class, using Janino.
    */
