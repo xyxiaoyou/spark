@@ -529,28 +529,46 @@ private[spark] class Executor(
           execBackend.statusUpdate(taskId, TaskState.KILLED, ser.serialize(reason))
 
         case t: Throwable =>
-          // Attempt to exit cleanly by informing the driver of our failure.
-          // If anything goes wrong (or this was a fatal exception), we will delegate to
-          // the default uncaught exception handler, which will terminate the Executor.
-          logError(s"Exception in $taskName (TID $taskId)", t)
+          //Check if cache is closing
+          val snappyCallBack = SparkCallBackFactory.getSnappySparkCallback()
+          if (snappyCallBack != null && snappyCallBack.checkCacheClosing(t)) {
+            logError(s"Cache closed exception in $taskName (TID $taskId)", t)
+            setTaskFinishedAndClearInterruptStatus()
+            val reason = new ExecutorLostFailure(executorId, false, Some(t.getMessage))
+            execBackend.statusUpdate(taskId, TaskState.KILLED, ser.serialize(reason))
+          } else if (snappyCallBack != null && snappyCallBack.checkRuntimeOrGemfireException(t)) {
+            logError(s"Executor killed $taskName (TID $taskId)", t)
+            setTaskFinishedAndClearInterruptStatus()
+            val reason = {
+              try {
+                new ExceptionFailure(t, null, true)
+              } catch {
+                case _:Throwable => new ExceptionFailure(t, null, false)
+              }
+            }
+            execBackend.statusUpdate(taskId, TaskState.KILLED, ser.serialize(reason))
+            val accUpdates = accums.map(acc => acc.toInfo(Some(acc.value), None))
+          } else {
+            // Attempt to exit cleanly by informing the driver of our failure.
+            // If anything goes wrong (or this was a fatal exception), we will delegate to
+            // the default uncaught exception handler, which will terminate the Executor.
+            logError(s"Exception in $taskName (TID $taskId)", t)
 
-          // SPARK-20904: Do not report failure to driver if if happened during shut down. Because
-          // libraries may set up shutdown hooks that race with running tasks during shutdown,
-          // spurious failures may occur and can result in improper accounting in the driver (e.g.
-          // the task failure would not be ignored if the shutdown happened because of premption,
-          // instead of an app issue).
-          if (!ShutdownHookManager.inShutdown()) {
             // Collect latest accumulator values to report back to the driver
             val accums: Seq[AccumulatorV2[_, _]] =
               if (task != null) {
                 task.metrics.setExecutorRunTime(
                   math.max(System.nanoTime() - taskStart, 0L) / 1000000.0)
+                val taskEndCpu = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
+                  threadMXBean.getCurrentThreadCpuTime
+                } else 0L
+                task.metrics.setExecutorCpuTime(
+                  math.max(taskEndCpu - taskStartCpu, 0L) / 1000000.0)
                 task.metrics.setJvmGCTime(computeTotalGcTime() - startGCTime)
                 task.collectAccumulatorUpdates(taskFailed = true)
               } else {
                 Seq.empty
               }
-
             val accUpdates = accums.map(acc => acc.toInfo(Some(acc.value), None))
 
             val serializedTaskEndReason = {
@@ -564,14 +582,17 @@ private[spark] class Executor(
             }
             setTaskFinishedAndClearInterruptStatus()
             execBackend.statusUpdate(taskId, TaskState.FAILED, serializedTaskEndReason)
-          } else {
-            logInfo("Not reporting error to driver during JVM shutdown.")
-          }
 
-          // Don't forcibly exit unless the exception was inherently fatal, to avoid
-          // stopping other tasks unnecessarily.
-          if (!t.isInstanceOf[SparkOutOfMemoryError] && Utils.isFatalError(t)) {
-            uncaughtExceptionHandler.uncaughtException(Thread.currentThread(), t)
+            // Don't forcibly exit unless the exception was inherently fatal, to avoid
+            // stopping other tasks unnecessarily.
+            if (Utils.isFatalError(t)) {
+              if (!isLocal) {
+                Thread.getDefaultUncaughtExceptionHandler.
+                  uncaughtException(Thread.currentThread(), t)
+              } else {
+                SparkUncaughtExceptionHandler.uncaughtException(t)
+              }
+            }
           }
       } finally {
         runningTasks.remove(taskId)
