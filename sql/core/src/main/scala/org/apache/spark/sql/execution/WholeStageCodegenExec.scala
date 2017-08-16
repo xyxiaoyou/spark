@@ -715,14 +715,7 @@ case class CollapseCodegenStages(conf: SQLConf) extends Rule[SparkPlan] {
   }
 }
 
-<<<<<<< HEAD
-class WholeStageCodegenRDD(sc: SparkContext, var source: CodeAndComment,
-||||||| parent of e3f2e3d... Snap 1833 (#67)
-
 case class WholeStageCodegenRDD(@transient sc: SparkContext, var source: CodeAndComment,
-=======
-case class WholeStageCodegenRDD(@transient sc: SparkContext, var source: CodeAndComment,
->>>>>>> e3f2e3d... Snap 1833 (#67)
     var references: Array[Any], var durationMs: SQLMetric,
     inputRDDs: Seq[RDD[InternalRow]])
     extends ZippedPartitionsBaseRDD[InternalRow](sc, inputRDDs)
@@ -740,21 +733,20 @@ case class WholeStageCodegenRDD(@transient sc: SparkContext, var source: CodeAnd
 
   override def compute(split: Partition,
       context: TaskContext): Iterator[InternalRow] = {
-    val catcher = catching(classOf[ClassCastException])
     new Iterator[InternalRow] {
-      private[this] var i = computeInternal(split, context)
+      private[this] var iter = computeInternal(split, context)
 
-      private[this] def replace() = i = {
-        logInfo(s"ClassCast Exception, hence recompiling")
-        CodeGenerator.invalidate(source)
-        computeInternal(split, context)
+      override def hasNext: Boolean = try {
+        iter.hasNext
+      } catch {
+        case _: ClassCastException =>
+          logInfo(s"ClassCastException, hence recompiling")
+          CodeGenerator.invalidate(source)
+          iter = computeInternal(split, context)
+          iter.hasNext
       }
 
-      override def hasNext: Boolean = catcher.opt(i.hasNext).getOrElse {
-        replace(); hasNext
-      }
-
-      override def next(): InternalRow = i.next()
+      override def next(): InternalRow = iter.next()
     }
   }
 
