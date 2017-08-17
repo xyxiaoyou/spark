@@ -27,11 +27,14 @@ import scala.xml.Node
 
 import org.eclipse.jetty.client.api.Response
 import org.eclipse.jetty.proxy.ProxyServlet
+import org.eclipse.jetty.security.authentication.BasicAuthenticator
+import org.eclipse.jetty.security.{ConstraintMapping, ConstraintSecurityHandler, HashLoginService, SecurityHandler}
 import org.eclipse.jetty.server.{HttpConnectionFactory, Request, Server, ServerConnector}
 import org.eclipse.jetty.server.handler._
 import org.eclipse.jetty.servlet._
 import org.eclipse.jetty.servlets.gzip.GzipHandler
 import org.eclipse.jetty.util.component.LifeCycle
+import org.eclipse.jetty.util.security.{Constraint, Credential}
 import org.eclipse.jetty.util.thread.{QueuedThreadPool, ScheduledExecutorScheduler}
 import org.json4s.JValue
 import org.json4s.jackson.JsonMethods.{pretty, render}
@@ -47,6 +50,31 @@ private[spark] object JettyUtils extends Logging {
 
   val SPARK_CONNECTOR_NAME = "Spark"
   val REDIRECT_CONNECTOR_NAME = "HttpsRedirect"
+
+  val snappyDataRealm = "SnappyDataPulse"
+  val snappyDataRoles = Array("user")
+  var customAuthenticator: Option[BasicAuthenticator] = None
+
+  lazy val constraintMapping = {
+    val constraint = new Constraint()
+    constraint.setName(Constraint.__BASIC_AUTH);
+    constraint.setRoles(snappyDataRoles);
+    constraint.setAuthenticate(true);
+
+    val cm = new ConstraintMapping();
+    cm.setConstraint(constraint);
+    cm.setPathSpec("/*")
+    cm
+  }
+
+  lazy val snappyHashLoginService = {
+    val userName = "snappyuser"
+    val password = "snappyuser"
+    val ls = new HashLoginService()
+    ls.putUser(userName, Credential.getCredential(password), snappyDataRoles)
+    ls.setName(snappyDataRealm)
+    ls
+  }
 
   // Base type for a function that returns something based on an HTTP request. Allows for
   // implicit conversion from many types of functions to jetty Handlers.
@@ -281,7 +309,13 @@ private[spark] object JettyUtils extends Logging {
 
     val gzipHandlers = handlers.map { h =>
       h.setVirtualHosts(Array("@" + SPARK_CONNECTOR_NAME))
-
+      // set Security Handler
+      customAuthenticator match {
+        case Some(auth) =>
+          h.setSecurityHandler(basicAuthenticationHandler())
+        case None =>
+          logDebug("Not setting auth handler")
+      }
       val gzipHandler = new GzipHandler
       gzipHandler.setHandler(h)
       gzipHandler
@@ -376,6 +410,16 @@ private[spark] object JettyUtils extends Logging {
       serverName)
     ServerInfo(server, boundPort, securePort,
       server.getHandler().asInstanceOf[ContextHandlerCollection])
+  }
+  /* Basic Authentication Handler */
+  private def basicAuthenticationHandler(): SecurityHandler = {
+    val csh = new ConstraintSecurityHandler();
+    csh.setAuthenticator(customAuthenticator.get);
+    csh.setRealmName(snappyDataRealm);
+    csh.addConstraintMapping(constraintMapping);
+    csh.setLoginService(snappyHashLoginService);
+
+    csh
   }
 
   private def createRedirectHttpsHandler(
