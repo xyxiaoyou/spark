@@ -220,7 +220,7 @@ private[spark] object UIUtils extends Logging {
       useDataTables: Boolean = false): Seq[Node] = {
 
     val appName = activeTab.appName
-    val shortAppName = if (appName.length < 36) appName else appName.take(32) + "..."
+    // val shortAppName = if (appName.length < 36) appName else appName.take(32) + "..."
     val header = activeTab.headerTabs.map { tab =>
       <li class={if (tab == activeTab) "active" else ""}>
         <a href={prependBaseUri(activeTab.basePath, "/" + tab.prefix + "/")}>{tab.name}</a>
@@ -245,9 +245,9 @@ private[spark] object UIUtils extends Logging {
                 {getProductVersionNode}
               </a>
             </div>
-            <div class="brand">
+            <div class="brand" style="line-height: 2.5;">
               <a href={prependBaseUri("/")} class="brand" style="float: left;">
-                <img src={prependBaseUri("/static/snappydata/snappydata-310X50.png")} />
+                <img src={prependBaseUri("/static/snappydata/snappydata-175X28.png")} />
               </a>
               {getProductVersionNode}
             </div>
@@ -280,7 +280,7 @@ private[spark] object UIUtils extends Logging {
       showVisualization: Boolean = false): Seq[Node] = {
 
     val appName = activeTab.appName
-    val shortAppName = if (appName.length < 36) appName else appName.take(32) + "..."
+    // val shortAppName = if (appName.length < 36) appName else appName.take(32) + "..."
     val header = activeTab.headerTabs.map { tab =>
       <li class={if (tab == activeTab) "active" else ""}>
         <a href={prependBaseUri(activeTab.basePath, "/" + tab.prefix + "/")}>{tab.name}</a>
@@ -300,9 +300,12 @@ private[spark] object UIUtils extends Logging {
           <div class="navbar-inner">
             <div class="product-brand">
               <a href={prependBaseUri("/")} class="brand">
-                <img src={prependBaseUri("/static/snappydata/SnappyData-Logo-230X50.png")} />
-                {getProductUINameNode}
-                {getProductVersionNode}
+                <img src={prependBaseUri("/static/snappydata/pulse-snappydata-152X50.png")} />
+              </a>
+            </div>
+            <div class="brand" style="line-height: 2.5;">
+              <a href={prependBaseUri("/")} class="brand" style="float: left;">
+                <img src={prependBaseUri("/static/snappydata/snappydata-175X28.png")} />
               </a>
             </div>
             <p class="navbar-text pull-right">
@@ -616,48 +619,12 @@ private[spark] object UIUtils extends Logging {
   def getProductVersionNode(): Node = {
     val versionDetails = SparkUI.getProductVersion
     val versionTooltipText =
-<<<<<<< HEAD
-      "SnappyData Ver. " + versionDetails.getOrElse("productVersion", "") +
-          " ( Underlying Spark Ver. " + org.apache.spark.SPARK_VERSION + " )"
-
-    <div class="popup">
-      <span class="version" style="font-size: 14px; color: #202020;"
-            data-toggle="tooltip" data-placement="bottom" data-original-title={versionTooltipText}
-            onclick="displayVersionDetails()" >{
-          versionDetails.getOrElse("productVersion", "")
-        }
-      </span>
-      <div class="popuptext" id="sdVersionDetails">
-        Product Name : {versionDetails.getOrElse("productName", "")} <br/>
-        Product Version : {versionDetails.getOrElse("productVersion", "")} <br/>
-        Build : {
-          versionDetails.getOrElse("buildId", "") + " " +
-          versionDetails.getOrElse("buildDate", "")
-        } <br/>
-        Source Revision : {versionDetails.getOrElse("sourceRevision", "")}
-      </div>
-    </div>
-||||||| parent of c1acf05... SNAP-1744: UI itself needs to consistently refer to itself as "SnappyData Pulse" (#64)
-      "SnappyData Ver. " + SparkUI.getProductVersion + " ( Underlying Spark Ver. " +
-          org.apache.spark.SPARK_VERSION + " )"
-
-    <span class="version" style="font-size: 14px;" data-toggle="tooltip" data-placement="bottom"
-          data-original-title={versionTooltipText} > {SparkUI.getProductVersion} </span>
-=======
       "SnappyData Ver. " + SparkUI.getProductVersion + " ( Underlying Spark Ver. " +
           org.apache.spark.SPARK_VERSION + " )"
 
     <span class="version" style="font-size: 14px; color: #3CA881;" data-toggle="tooltip"
           data-placement="bottom"
           data-original-title={versionTooltipText} > {SparkUI.getProductVersion} </span>
->>>>>>> c1acf05... SNAP-1744: UI itself needs to consistently refer to itself as "SnappyData Pulse" (#64)
-  }
-
-  def getProductUINameNode(): Node = {
-    <span style="line-height: 2.5; vertical-align: middle; font-size: 20px; padding: 0;
-          margin: 0; font-weight: bold; color: #3CA881;" data-toggle="tooltip"
-          data-placement="bottom"
-          data-original-title="SnappyData Monitoring Application"> Pulse </span>
   }
 
   def getProductDocLinkNode(): Node = {
