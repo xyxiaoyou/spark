@@ -27,8 +27,8 @@ import scala.xml.Node
 
 import org.eclipse.jetty.client.api.Response
 import org.eclipse.jetty.proxy.ProxyServlet
-import org.eclipse.jetty.security.authentication.BasicAuthenticator
 import org.eclipse.jetty.security.{ConstraintMapping, ConstraintSecurityHandler, HashLoginService, SecurityHandler}
+import org.eclipse.jetty.security.authentication.BasicAuthenticator
 import org.eclipse.jetty.server.{HttpConnectionFactory, Request, Server, ServerConnector}
 import org.eclipse.jetty.server.handler._
 import org.eclipse.jetty.servlet._
