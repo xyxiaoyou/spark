@@ -29,8 +29,9 @@ import org.eclipse.jetty.client.api.Response
 import org.eclipse.jetty.client.http.HttpClientTransportOverHTTP
 import org.eclipse.jetty.proxy.ProxyServlet
 import org.eclipse.jetty.server._
-import org.eclipse.jetty.security.authentication.BasicAuthenticator
 import org.eclipse.jetty.security.{ConstraintMapping, ConstraintSecurityHandler, HashLoginService, SecurityHandler}
+import org.eclipse.jetty.security.authentication.BasicAuthenticator
+import org.eclipse.jetty.server.{HttpConnectionFactory, Request, Server, ServerConnector}
 import org.eclipse.jetty.server.handler._
 import org.eclipse.jetty.server.handler.gzip.GzipHandler
 import org.eclipse.jetty.servlet._
