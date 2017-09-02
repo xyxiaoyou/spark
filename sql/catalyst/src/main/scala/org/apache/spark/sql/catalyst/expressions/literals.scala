@@ -308,10 +308,18 @@ case class Literal (value: Any, dataType: DataType) extends LeafExpression {
         case ByteType | ShortType =>
           ev.copy(code = "", value = s"($javaType)$value")
         case TimestampType | LongType =>
-          ev.copy(code = "", value = s"${value}L")
+          ev.isNull = "false"
+          ev.value = s"${value}L"
+          ev.copy("")
         case _ =>
-          ev.copy(code = "", value = ctx.addReferenceObj("literal", value,
-            ctx.javaType(dataType)))
+          if (value == null) {
+            ev.isNull = "true"
+            ev.value = "null"
+          } else {
+            ev.isNull = "false"
+            ev.value = ctx.addReferenceObj("value", value, ctx.javaType(dataType))
+          }
+          ev.copy("")
       }
     }
   }
