@@ -298,9 +298,9 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
     final Object base = this.base;
     final int len = this.numBytes;
     // noinspection ConstantConditions
-    if (base == null && len > Native.MIN_JNI_SIZE &&
+    if (base == null && len >= Native.MIN_JNI_SIZE &&
         substring.base == null && Native.isLoaded()) {
-      return Native.containsString(offset, offset + len, substring.offset, slen);
+      return Native.containsString(offset, len, substring.offset, slen);
     }
 
     final byte first = substring.getByte(0);
@@ -1073,6 +1073,18 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
     long leftOffset = offset;
 
     final int len = Math.min(numBytes, other.numBytes);
+
+    // for the case that compare will fail in first few bytes itself, the overhead
+    // of JNI call is too high
+    /*
+    // noinspection ConstantConditions
+    if (leftBase == null && rightBase == null &&
+        len >= Native.MIN_JNI_SIZE && Native.isLoaded()) {
+      final int result = Native.compareString(leftOffset, rightOffset, len);
+      return result != 0 ? result : (numBytes - other.numBytes);
+    }
+    */
+
     long endOffset = leftOffset + len;
     // for architectures that support unaligned accesses, read 8 bytes at a time
     if (Platform.unaligned() || (((leftOffset & 0x7) == 0) && ((rightOffset & 0x7) == 0))) {
