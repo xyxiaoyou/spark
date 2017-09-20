@@ -48,6 +48,8 @@ allprojects {
   version = '2.1.1.1'
 
   ext {
+    productName = 'SnappyData'
+    vendorName = 'SnappyData, Inc.'
     scalaBinaryVersion = '2.11'
     scalaVersion = scalaBinaryVersion + '.8'
     hadoopVersion = '2.7.3'
