@@ -89,7 +89,7 @@ shadowJar {
       'Created-By'        : createdBy,
       'Title'             : project.name,
       'Version'           : version,
-      'Vendor'            : 'SnappyData, Inc.'
+      'Vendor'            : vendorName
     )
   }
 
