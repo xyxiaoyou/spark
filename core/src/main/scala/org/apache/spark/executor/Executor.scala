@@ -86,7 +86,7 @@ private[spark] class Executor(
   }
 
   // Start worker thread pool
-  private val threadPool = {
+  protected final val threadPool = {
     val threadFactory = new ThreadFactoryBuilder()
       .setDaemon(true)
       .setNameFormat("Executor task launch worker-%d")
@@ -102,7 +102,7 @@ private[spark] class Executor(
   }
   private val executorSource = new ExecutorSource(threadPool, executorId)
   // Pool used for threads that supervise task killing / cancellation
-  private val taskReaperPool = ThreadUtils.newDaemonCachedThreadPool("Task reaper")
+  protected final val taskReaperPool = ThreadUtils.newDaemonCachedThreadPool("Task reaper")
   // For tasks which are in the process of being killed, this map holds the most recently created
   // TaskReaper. All accesses to this map should be synchronized on the map itself (this isn't
   // a ConcurrentHashMap because we use the synchronization for purposes other than simply guarding
