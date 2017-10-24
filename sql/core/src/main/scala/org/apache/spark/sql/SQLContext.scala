@@ -18,11 +18,11 @@
 package org.apache.spark.sql
 
 import java.beans.{BeanInfo, Introspector, PropertyDescriptor}
-import java.lang.reflect.Method
 import java.util.Properties
 
 import scala.collection.immutable
 import scala.reflect.runtime.universe.TypeTag
+
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.annotation.{DeveloperApi, Experimental, InterfaceStability}
 import org.apache.spark.api.java.{JavaRDD, JavaSparkContext}
@@ -32,7 +32,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst._
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.execution.command.ShowTablesCommand
-import org.apache.spark.sql.internal.{SQLConf, SessionState, SharedState}
+import org.apache.spark.sql.internal.{SessionState, SharedState, SQLConf}
 import org.apache.spark.sql.sources.BaseRelation
 import org.apache.spark.sql.streaming.{DataStreamReader, StreamingQueryManager}
 import org.apache.spark.sql.types._
@@ -1111,21 +1111,21 @@ object SQLContext {
     }
   }
 
-  def getExtractors( beanInfo: BeanInfo,
-                     attrs: Seq[AttributeReference]): Array[(PropertyDescriptor, Any => Any)] = {
-   val methodsToConverts = beanInfo.getPropertyDescriptors.
-     filterNot(_.getName == "class").zip(attrs)
-   methodsToConverts.map { case (desc, attr) =>
+  def getExtractors(
+      beanInfo: BeanInfo,
+      attrs: Seq[AttributeReference]): Array[(PropertyDescriptor, Any => Any)] = {
+    val methodsToConverts = beanInfo.getPropertyDescriptors.
+        filterNot(_.getName == "class").zip(attrs)
+    methodsToConverts.map { case (desc, attr) =>
       attr.dataType match {
-        case strct: StructType => {
+        case struct: StructType =>
           val extractors = getExtractors(Introspector.getBeanInfo(desc.getPropertyType),
-            strct.toAttributes)
+            struct.toAttributes)
           (desc, (x: Any) => {
-            val arr = Array.tabulate[Any](strct.length)(i =>
+            val arr = Array.tabulate[Any](struct.length)(i =>
               extractors(i)._2(extractors(i)._1.getReadMethod.invoke(x)))
             new GenericInternalRow(arr)
           })
-        }
         case _ => (desc, CatalystTypeConverters.createToCatalystConverter(attr.dataType))
       }
     }
