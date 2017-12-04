@@ -29,7 +29,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.network.netty.SparkTransportConf
 import org.apache.spark.network.shuffle.kubernetes.KubernetesExternalShuffleClientImpl
 import org.apache.spark.scheduler.{ExternalClusterManager, SchedulerBackend, TaskScheduler, TaskSchedulerImpl}
-import org.apache.spark.util.{ThreadUtils, Utils}
+import org.apache.spark.util.ThreadUtils
 
 private[spark] class KubernetesClusterManager extends ExternalClusterManager with Logging {
 
@@ -78,7 +78,9 @@ private[spark] class KubernetesClusterManager extends ExternalClusterManager wit
         sparkConf.get(INIT_CONTAINER_FILES_DOWNLOAD_LOCATION),
         sparkConf.get(INIT_CONTAINER_MOUNT_TIMEOUT),
         configMap,
-        configMapKey)
+        configMapKey,
+        SPARK_POD_EXECUTOR_ROLE,
+        sparkConf)
     }
 
     val mountSmallFilesBootstrap = for {
@@ -91,6 +93,11 @@ private[spark] class KubernetesClusterManager extends ExternalClusterManager wit
     val executorSecretNamesToMountPaths = ConfigurationUtils.parsePrefixedKeyValuePairs(sparkConf,
       KUBERNETES_EXECUTOR_SECRETS_PREFIX, "executor secrets")
     val mountSecretBootstrap = if (executorSecretNamesToMountPaths.nonEmpty) {
+      Some(new MountSecretsBootstrapImpl(executorSecretNamesToMountPaths))
+    } else {
+      None
+    }
+    val executorInitContainerMountSecretsBootstrap = if (executorSecretNamesToMountPaths.nonEmpty) {
       Some(new MountSecretsBootstrapImpl(executorSecretNamesToMountPaths))
     } else {
       None
@@ -133,6 +140,7 @@ private[spark] class KubernetesClusterManager extends ExternalClusterManager wit
         mountSecretBootstrap,
         mountSmallFilesBootstrap,
         executorInitContainerBootstrap,
+        executorInitContainerMountSecretsBootstrap,
         executorInitContainerSecretVolumePlugin,
         executorLocalDirVolumeProvider)
     val allocatorExecutor = ThreadUtils
