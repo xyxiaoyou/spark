@@ -1504,7 +1504,7 @@ object CodeGenerator extends Logging {
    * weak keys/values and thus does not respond to memory pressure.
    */
   private val cache = CacheBuilder.newBuilder()
-    .maximumSize(300)
+    .maximumSize(1000)
     .build(
       new CacheLoader[CodeAndComment, (GeneratedClass, Int)]() {
         override def load(code: CodeAndComment): (GeneratedClass, Int) = {
@@ -1518,4 +1518,5 @@ object CodeGenerator extends Logging {
           result
         }
       })
+  }
 }
