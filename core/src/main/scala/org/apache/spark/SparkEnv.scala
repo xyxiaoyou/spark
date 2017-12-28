@@ -370,12 +370,13 @@ object SparkEnv extends Logging {
 
     val useLegacyMemoryManager = conf.getBoolean("spark.memory.useLegacyMode", false)
     val memoryManager: MemoryManager =
+    SparkSnappyUtils.loadSnappyManager(conf, numUsableCores).getOrElse {
       if (useLegacyMemoryManager) {
         new StaticMemoryManager(conf, numUsableCores)
       } else {
         UnifiedMemoryManager(conf, numUsableCores)
       }
-
+    }
     val blockManagerPort = if (isDriver) {
       conf.get(DRIVER_BLOCK_MANAGER_PORT)
     } else {
