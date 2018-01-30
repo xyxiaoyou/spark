@@ -380,7 +380,6 @@ final class ShuffleBlockFetcherIterator(
     }
 
     numBlocksProcessed += 1
-
     var result: FetchResult = null
     var input: InputStream = null
     // Take the next fetched result and try to decompress it to detect data corruption,

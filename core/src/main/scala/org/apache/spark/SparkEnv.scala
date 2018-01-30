@@ -94,6 +94,9 @@ class SparkEnv (
   private[spark] var isStopped = false
   private val pythonWorkers = mutable.HashMap[(String, Map[String, String]), PythonWorkerFactory]()
 
+  // This logger is used to do task related logging across multiple classes
+  private[spark] val taskLogger = new NamedLogger("org.apache.spark.Task")
+
   // A general, soft-reference map for metadata needed during HadoopRDD split computation
   // (e.g., HadoopFileRDD uses this to cache JobConfs and InputFormats).
   private[spark] val hadoopJobMetadata = new MapMaker().softValues().makeMap[String, Any]()
@@ -368,7 +371,7 @@ object SparkEnv extends Logging {
       shortShuffleMgrNames.getOrElse(shuffleMgrName.toLowerCase(Locale.ROOT), shuffleMgrName)
     val shuffleManager = instantiateClass[ShuffleManager](shuffleMgrClass)
 
-    val useLegacyMemoryManager = conf.getBoolean("spark.memory.useLegacyMode", false)
+    val useLegacyMemoryManager = conf.getBoolean("spark.memory.useLegacyMode", defaultValue = false)
     val memoryManager: MemoryManager =
     SparkSnappyUtils.loadSnappyManager(conf, numUsableCores).getOrElse {
       if (useLegacyMemoryManager) {
@@ -496,4 +499,27 @@ object SparkEnv extends Logging {
       "System Properties" -> otherProperties,
       "Classpath Entries" -> classPaths)
   }
+}
+
+private[spark] class NamedLogger(override val logName: String) extends Logging with Serializable {
+
+  override def logInfo(msg: => String): Unit = super.logInfo(msg)
+
+  override def logDebug(msg: => String): Unit = super.logDebug(msg)
+
+  override def logTrace(msg: => String): Unit = super.logTrace(msg)
+
+  override def logWarning(msg: => String): Unit = super.logWarning(msg)
+
+  override def logError(msg: => String): Unit = super.logError(msg)
+
+  override def logInfo(msg: => String, t: Throwable): Unit = super.logInfo(msg, t)
+
+  override def logDebug(msg: => String, t: Throwable): Unit = super.logDebug(msg, t)
+
+  override def logTrace(msg: => String, t: Throwable): Unit = super.logTrace(msg, t)
+
+  override def logWarning(msg: => String, t: Throwable): Unit = super.logWarning(msg, t)
+
+  override def logError(msg: => String, t: Throwable): Unit = super.logError(msg, t)
 }

@@ -100,7 +100,7 @@ private[spark] class DirectTaskResult[T](
     var numUpdates = input.readVarInt(true)
     val hasTimeMetric = input.readBoolean()
     if (numUpdates == 0 && !hasTimeMetric) {
-      accumUpdates = null
+      accumUpdates = Seq.empty
     } else {
       val _accumUpdates = new ArrayBuffer[AccumulatorV2[_, _]](
         if (hasTimeMetric) numUpdates + 1 else numUpdates)
