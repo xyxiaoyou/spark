@@ -605,7 +605,10 @@ class HiveThriftBinaryServerSuite extends HiveThriftJdbcTest {
         assert(rs1.next())
         assert(rs1.getString(1) === "Usage: N/A.")
 
-        val dataPath = "../hive/src/test/resources/data/files/kv1.txt"
+        val dataPath = sys.props.get("spark.project.home") match {
+          case Some(h) => s"$h/sql/hive/src/test/resources/data/files/kv1.txt"
+          case _ => "../hive/src/test/resources/data/files/kv1.txt"
+        }
 
         Seq(
           s"CREATE TABLE test_udtf(key INT, value STRING)",
