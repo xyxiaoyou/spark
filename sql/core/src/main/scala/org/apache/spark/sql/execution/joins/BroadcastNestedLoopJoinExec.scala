@@ -17,6 +17,9 @@
 
 package org.apache.spark.sql.execution.joins
 
+import java.util.Arrays
+import java.util.Comparator
+
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.AnalysisException
@@ -98,10 +101,23 @@ case class BroadcastNestedLoopJoinExec(
       val buildRows = relation.value
       val joinedRow = new JoinedRow
 
-      streamedIter.flatMap { streamedRow =>
-        val joinedRows = buildRows.iterator.map(r => joinedRow(streamedRow, r))
+      class InternalRowComparator[InternalRow] extends Comparator[InternalRow] {
+        override def compare(r1: InternalRow, r2: InternalRow): Int = {
+          def getValue(r: InternalRow): Long = {
+            r match {
+              case a : UnsafeRow => a.getLong(0)
+              case _ => 0
+            }
+          }
+          getValue(r1).compareTo(getValue(r2))
+        }
+      }
+      Arrays.sort(buildRows, new InternalRowComparator[InternalRow])
+
+      buildRows.iterator.flatMap { r =>
+        val joinedRows = streamedIter.map(streamedRow => joinedRow(streamedRow, r))
         if (condition.isDefined) {
-          joinedRows.filter(boundCondition)
+          joinedRows.filter(boundCondition).take(1)
         } else {
           joinedRows
         }

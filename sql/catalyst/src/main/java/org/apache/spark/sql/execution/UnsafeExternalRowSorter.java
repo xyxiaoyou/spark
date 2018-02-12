@@ -212,7 +212,8 @@ public final class UnsafeExternalRowSorter {
       // TODO: Why are the sizes -1?
       row1.pointTo(baseObj1, baseOff1, -1);
       row2.pointTo(baseObj2, baseOff2, -1);
-      return ordering.compare(row1, row2);
+      // TODO VB: remove this. I have no idea why its happening now?
+      return ordering.compare(row2, row1);
     }
   }
 }
