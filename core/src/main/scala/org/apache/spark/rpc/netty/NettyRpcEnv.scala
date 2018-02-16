@@ -24,7 +24,8 @@ import java.util.concurrent._
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.annotation.Nullable
 
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.concurrent.duration.Duration
 import scala.reflect.ClassTag
 import scala.util.{DynamicVariable, Failure, Success, Try}
 import scala.util.control.NonFatal
@@ -351,6 +352,14 @@ private[netty] class NettyRpcEnv(
     source
   }
 
+  override def openChannel(uri: String, readTimeoutMs: Long): ReadableByteChannel = {
+    val source = openChannel(uri)
+    if (readTimeoutMs > 0) {
+      source.asInstanceOf[FileDownloadChannel].setTimeoutMs(readTimeoutMs)
+    }
+    source
+  }
+
   private def downloadClient(host: String, port: Int): TransportClient = {
     if (fileDownloadFactory == null) synchronized {
       if (fileDownloadFactory == null) {
@@ -378,6 +387,7 @@ private[netty] class NettyRpcEnv(
   private class FileDownloadChannel(source: Pipe.SourceChannel) extends ReadableByteChannel {
 
     @volatile private var error: Throwable = _
+    private var timeoutMs: Long = _
 
     def setError(e: Throwable): Unit = {
       // This setError callback is invoked by internal RPC threads in order to propagate remote
@@ -392,14 +402,17 @@ private[netty] class NettyRpcEnv(
       error = e
     }
 
+    def setTimeoutMs(millis: Long): Unit = {
+      timeoutMs = millis
+    }
+
     override def read(dst: ByteBuffer): Int = {
-      Try(source.read(dst)) match {
-        // See the documentation above in setError(): if an RPC error has occurred then setError()
-        // will be called to propagate the RPC error and then `source`'s corresponding
-        // Pipe.SinkChannel will be closed, unblocking this read. In that case, we want to propagate
-        // the remote RPC exception (and not any exceptions triggered by the pipe close, such as
-        // ChannelClosedException), hence this `error != null` check:
-        case _ if error != null => throw error
+      def readBuffer: Int = if (timeoutMs > 0) {
+        val context = ExecutionContext.fromExecutorService(clientConnectionExecutor)
+        val future = Future(source.read(dst))(context)
+        ThreadUtils.awaitResult(future, Duration(timeoutMs, TimeUnit.MILLISECONDS))
+      } else source.read(dst)
+      Try(readBuffer) match {
         case Success(bytesRead) => bytesRead
         case Failure(readErr) => throw readErr
       }
