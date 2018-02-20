@@ -122,7 +122,7 @@ case class SortMergeJoinExec(
       val resultProj: InternalRow => InternalRow = UnsafeProjection.create(output, output)
 
       joinType match {
-        case _: InnerLike =>
+        case _: InnerLike => if (!SortMergeJoinExec.isCaseOfSortedInsertValue) {
           new RowIterator {
             private[this] var currentLeftRow: InternalRow = _
             private[this] var currentRightMatches: ArrayBuffer[InternalRow] = _
@@ -168,6 +168,49 @@ case class SortMergeJoinExec(
 
             override def getRow: InternalRow = resultProj(joinRow)
           }.toScala
+        } else {
+          if (SortMergeJoinExec.isDebugMode) {
+            println("vivek innerjoin start")
+          }
+          new RowIterator {
+            private[this] var currentLeftRow: InternalRow = _
+            private[this] var currentRightMatch: InternalRow = _
+            private[this] val smjScanner = new SortMergeJoinScannerCustomized(
+              createLeftKeyGenerator(),
+              createRightKeyGenerator(),
+              keyOrdering,
+              RowIterator.fromScala(leftIter),
+              RowIterator.fromScala(rightIter)
+            )
+            private[this] val joinRow = new JoinedRow
+
+            override def advanceNext(): Boolean = {
+              if (smjScanner.findNextInnerJoinRowsCustomized()) {
+                currentRightMatch = smjScanner.getBufferedMatch
+                currentLeftRow = smjScanner.getStreamedRow
+                joinRow(currentLeftRow, currentRightMatch)
+                if (SortMergeJoinExec.isDebugMode) {
+                  println(s"vivek innerjoin ${currentLeftRow.getLong(0)} ${currentRightMatch.getLong(0)} ${boundCondition(joinRow)}")
+                }
+                if (boundCondition(joinRow)) {
+                  return true
+                }
+              } else {
+                currentRightMatch = null
+                currentLeftRow = null
+                return false
+              }
+              false
+            }
+
+            override def getRow: InternalRow = {
+              if (SortMergeJoinExec.isDebugMode) {
+                println(s"vivek innerjoin getRow ${resultProj(joinRow).getLong(0)}")
+              }
+              resultProj(joinRow)
+            }
+          }.toScala
+        }
 
         case LeftOuter =>
           val smjScanner = new SortMergeJoinScanner(
@@ -243,7 +286,7 @@ case class SortMergeJoinExec(
             override def getRow: InternalRow = currentLeftRow
           }.toScala
 
-        case LeftAnti =>
+        case LeftAnti => if (!SortMergeJoinExec.isCaseOfSortedInsertValue) {
           new RowIterator {
             private[this] var currentLeftRow: InternalRow = _
             private[this] val smjScanner = new SortMergeJoinScanner(
@@ -281,6 +324,47 @@ case class SortMergeJoinExec(
 
             override def getRow: InternalRow = currentLeftRow
           }.toScala
+        } else {
+          if (SortMergeJoinExec.isDebugMode) {
+            println("vivek antijoin start")
+          }
+          new RowIterator {
+            private[this] var currentLeftRow: InternalRow = _
+            private[this] val smjScanner = new SortMergeJoinScannerCustomized(
+              createLeftKeyGenerator(),
+              createRightKeyGenerator(),
+              keyOrdering,
+              RowIterator.fromScala(leftIter),
+              RowIterator.fromScala(rightIter)
+            )
+            private[this] val joinRow = new JoinedRow
+
+            override def advanceNext(): Boolean = {
+              while (smjScanner.findNextOuterJoinRowsCustomized()) {
+                currentLeftRow = smjScanner.getStreamedRow
+                val currentRightMatch = smjScanner.getBufferedMatch
+                if (currentRightMatch == null) {
+                  return true
+                }
+                joinRow(currentLeftRow, currentRightMatch)
+                if (SortMergeJoinExec.isDebugMode) {
+                  println(s"vivek antijoin ${currentLeftRow.getLong(0)} ${boundCondition(joinRow)}")
+                }
+                if (!boundCondition(joinRow)) {
+                  return true
+                }
+              }
+              false
+            }
+
+            override def getRow: InternalRow = {
+              if (SortMergeJoinExec.isDebugMode) {
+                println(s"vivek antijoin getRow ${currentLeftRow.getLong(0)}")
+              }
+              currentLeftRow
+            }
+          }.toScala
+        }
 
         case j: ExistenceJoin =>
           new RowIterator {
@@ -329,7 +413,7 @@ case class SortMergeJoinExec(
   }
 
   override def supportCodegen: Boolean = {
-    joinType.isInstanceOf[InnerLike]
+    !SortMergeJoinExec.isCaseOfSortedInsertValue && joinType.isInstanceOf[InnerLike]
   }
 
   override def inputRDDs(): Seq[RDD[InternalRow]] = {
@@ -600,15 +684,15 @@ private[joins] class SortMergeJoinScanner(
     keyOrdering: Ordering[InternalRow],
     streamedIter: RowIterator,
     bufferedIter: RowIterator) {
-  private[this] var streamedRow: InternalRow = _
-  private[this] var streamedRowKey: InternalRow = _
-  private[this] var bufferedRow: InternalRow = _
+  protected[this] var streamedRow: InternalRow = _
+  protected[this] var streamedRowKey: InternalRow = _
+  protected[this] var bufferedRow: InternalRow = _
   // Note: this is guaranteed to never have any null columns:
-  private[this] var bufferedRowKey: InternalRow = _
+  protected[this] var bufferedRowKey: InternalRow = _
   /**
    * The join key for the rows buffered in `bufferedMatches`, or null if `bufferedMatches` is empty
    */
-  private[this] var matchJoinKey: InternalRow = _
+  protected[this] var matchJoinKey: InternalRow = _
   /** Buffered rows from the buffered side of the join. This is empty if there are no matches. */
   private[this] val bufferedMatches: ArrayBuffer[InternalRow] = new ArrayBuffer[InternalRow]
 
@@ -720,7 +804,7 @@ private[joins] class SortMergeJoinScanner(
    * Advance the streamed iterator and compute the new row's join key.
    * @return true if the streamed iterator returned a row and false otherwise.
    */
-  private def advancedStreamed(): Boolean = {
+  protected def advancedStreamed(): Boolean = {
     if (streamedIter.advanceNext()) {
       streamedRow = streamedIter.getRow
       streamedRowKey = streamedKeyGenerator(streamedRow)
@@ -736,7 +820,7 @@ private[joins] class SortMergeJoinScanner(
    * Advance the buffered iterator until we find a row with join key that does not contain nulls.
    * @return true if the buffered iterator returned a row and false otherwise.
    */
-  private def advancedBufferedToRowWithNullFreeJoinKey(): Boolean = {
+  protected def advancedBufferedToRowWithNullFreeJoinKey(): Boolean = {
     var foundRow: Boolean = false
     while (!foundRow && bufferedIter.advanceNext()) {
       bufferedRow = bufferedIter.getRow
@@ -768,6 +852,138 @@ private[joins] class SortMergeJoinScanner(
       bufferedMatches += bufferedRow.copy() // need to copy mutable rows before buffering them
       advancedBufferedToRowWithNullFreeJoinKey()
     } while (bufferedRow != null && keyOrdering.compare(streamedRowKey, bufferedRowKey) == 0)
+  }
+}
+
+private[joins] class SortMergeJoinScannerCustomized(
+    streamedKeyGenerator: Projection,
+    bufferedKeyGenerator: Projection,
+    keyOrdering: Ordering[InternalRow],
+    streamedIter: RowIterator,
+    bufferedIter: RowIterator) extends SortMergeJoinScanner(
+  streamedKeyGenerator: Projection,
+  bufferedKeyGenerator: Projection,
+  keyOrdering: Ordering[InternalRow],
+  streamedIter: RowIterator,
+  bufferedIter: RowIterator) {
+
+  private[this] var bufferedMatch: InternalRow = null
+  def getBufferedMatch: InternalRow = bufferedMatch
+
+  /**
+   * Advances both input iterators, stopping when we have found rows with matching join keys.
+   * @return true if matching rows have been found and false otherwise. If this returns true, then
+   *         [[getStreamedRow]] and [[getBufferedMatches]] can be called to construct the join
+   *         results.
+   */
+  final def findNextInnerJoinRowsCustomized(): Boolean = {
+    if (bufferedMatch == null) {
+      while (advancedStreamed() && streamedRowKey.anyNull) {
+        // Advance the streamed side of the join until we find the next row whose join key contains
+        // no nulls or we hit the end of the streamed iterator.
+      }
+    }
+    if (streamedRow != null) {
+      if (SortMergeJoinExec.isDebugMode) {
+        val sRow = if (streamedRowKey != null) streamedRowKey.getLong(0) else null
+        val bRow = if (bufferedRowKey != null) bufferedRowKey.getLong(0) else null
+        println(s"vivek findNextInnerJoinRows start $sRow $bRow bufferedMatch-is-null=${bufferedMatch == null}")
+      }
+    }
+    if (streamedRow == null) {
+      // We have consumed the entire streamed iterator, so there can be no more matches.
+      matchJoinKey = null
+      bufferedMatch = null
+      false
+    } else if (bufferedRow == null) {
+      // The streamed row's join key does not match the current batch of buffered rows and there are
+      // no more rows to read from the buffered iterator, so there can be no more matches.
+      matchJoinKey = null
+      bufferedMatch = null
+      false
+    } else {
+      // Advance both the streamed and buffered iterators to find the next pair of matching rows.
+      var comp = keyOrdering.compare(streamedRowKey, bufferedRowKey)
+      do {
+        if (streamedRowKey.anyNull) {
+          advancedStreamed()
+        } else {
+          assert(!bufferedRowKey.anyNull)
+          comp = keyOrdering.compare(streamedRowKey, bufferedRowKey)
+          if (SortMergeJoinExec.isDebugMode) {
+            println(s"vivek findNextInnerJoinRows ${streamedRowKey.getLong(0)} ${bufferedRowKey.getLong(0)} $comp")
+          }
+          if (comp < 0) advancedStreamed()
+        }
+      } while (streamedRow != null && bufferedRow != null && comp < 0)
+      if (streamedRow == null || bufferedRow == null) {
+        // We have either hit the end of one of the iterators, so there can be no more matches.
+        matchJoinKey = null
+        bufferedMatch = null
+        false
+      } else {
+        // The streamed row's join key matches the current buffered row's join, so walk through the
+        // buffered iterator to buffer the rest of the matching rows.
+        assert(comp >= 0)
+        // bufferMatchingRows()
+        matchJoinKey = streamedRowKey.copy()
+        bufferedMatch = bufferedRow.copy() // need to copy mutable rows before buffering them
+        advancedBufferedToRowWithNullFreeJoinKey()
+        true
+      }
+    }
+  }
+
+  /**
+   * Advances the streamed input iterator and buffers all rows from the buffered input that
+   * have matching keys.
+   * @return true if the streamed iterator returned a row, false otherwise. If this returns true,
+   *         then [[getStreamedRow]] and [[getBufferedMatches]] can be called to produce the outer
+   *         join results.
+   */
+  final def findNextOuterJoinRowsCustomized(): Boolean = {
+    if (!advancedStreamed()) {
+      // We have consumed the entire streamed iterator, so there can be no more matches.
+      matchJoinKey = null
+      bufferedMatch = null
+      false
+    } else {
+      if (SortMergeJoinExec.isDebugMode) {
+        val sRow = if (streamedRow != null) streamedRow.getLong(0) else null
+        val bRow = if (bufferedRowKey != null) bufferedRowKey.getLong(0) else null
+        val mRow = if (matchJoinKey != null) matchJoinKey.getLong(0) else null
+        println(s"vivek findNextOuterJoinRows start $sRow $bRow $mRow")
+      }
+
+      if (matchJoinKey != null && keyOrdering.compare(streamedRowKey, matchJoinKey) <= 0) {
+        // Matches the current group, so do nothing.
+      } else {
+        // The streamed row does not match the current group.
+        matchJoinKey = null
+        bufferedMatch = null
+        if (bufferedRow != null && !streamedRowKey.anyNull) {
+          // The buffered iterator could still contain matching rows, so we'll need to walk through
+          // it until we either find matches or pass where they would be found.
+          var comp = 1
+          do {
+            comp = keyOrdering.compare(streamedRowKey, bufferedRowKey)
+            if (SortMergeJoinExec.isDebugMode) {
+              val sRowLoop = if (streamedRowKey != null) streamedRowKey.getLong(0) else null
+              val bRowLoop = if (bufferedRowKey != null) bufferedRowKey.getLong(0) else null
+              println(s"vivek findNextOuterJoinRows loop $sRowLoop $bRowLoop $comp")
+            }
+          } while (comp > 0 && advancedBufferedToRowWithNullFreeJoinKey())
+          if (comp <= 0) {
+            // We have found matches, so buffer them (this updates matchJoinKey)
+            bufferedMatch = bufferedRow.copy()
+          } else {
+            // We have overshot the position where the row would be found, hence no matches.
+          }
+        }
+      }
+      // If there is a streamed input then we always return true
+      true
+    }
   }
 }
 
@@ -1071,4 +1287,10 @@ private class FullOuterIterator(
   }
 
   override def getRow: InternalRow = resultProj(joinedRow)
+}
+
+object SortMergeJoinExec {
+  // TODO VB: Temporary, remove this
+  var isCaseOfSortedInsertValue: Boolean = false
+  var isDebugMode: Boolean = false
 }
