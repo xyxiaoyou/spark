@@ -169,7 +169,7 @@ private[spark] class TaskSchedulerImpl(
     waitBackendReady()
   }
 
-  protected def submitGetTaskSetManager(taskSet: TaskSet): TaskSetManager = {
+  protected def getTaskSetManagerForSubmit(taskSet: TaskSet): TaskSetManager = {
     {
       val manager = createTaskSetManager(taskSet, maxTaskFailures)
       val stage = taskSet.stageId
@@ -191,7 +191,7 @@ private[spark] class TaskSchedulerImpl(
     val tasks = taskSet.tasks
     logInfo("Adding task set " + taskSet.id + " with " + tasks.length + " tasks")
     this.synchronized {
-      val manager = submitGetTaskSetManager(taskSet)
+      val manager = getTaskSetManagerForSubmit(taskSet)
       schedulableBuilder.addTaskSetManager(manager, manager.taskSet.properties)
 
       if (!isLocal && !hasReceivedTask) {
