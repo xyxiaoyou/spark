@@ -498,7 +498,7 @@ private[spark] class BlockManager(
    * Get locations of an array of blocks.
    */
   private def getLocationBlockIds(blockIds: Array[BlockId]): Array[Seq[BlockManagerId]] = {
-    val startTimeMs = if (isDebugEnabled) System.currentTimeMillis else 0L
+    val startTimeMs = if (log.isDebugEnabled) System.currentTimeMillis else 0L
     val locations = master.getLocations(blockIds).toArray
     logDebug("Got multiple block location in %s".format(Utils.getUsedTimeMs(startTimeMs)))
     locations
@@ -907,7 +907,7 @@ private[spark] class BlockManager(
       tellMaster: Boolean = true,
       keepReadLock: Boolean = false): Boolean = {
     doPut(blockId, level, classTag, tellMaster = tellMaster, keepReadLock = keepReadLock) { info =>
-      val startTimeMs = if (isDebugEnabled) System.currentTimeMillis else 0L
+      val startTimeMs = if (log.isDebugEnabled) System.currentTimeMillis else 0L
       // Since we're storing bytes, initiate the replication before storing them locally.
       // This is faster as data is already serialized and ready to send.
       val replicationFuture = if (level.replication > 1) {
@@ -1015,7 +1015,7 @@ private[spark] class BlockManager(
       }
     }
 
-    val startTimeMs = if (isDebugEnabled) System.currentTimeMillis else 0L
+    val startTimeMs = if (log.isDebugEnabled) System.currentTimeMillis else 0L
     var exceptionWasThrown: Boolean = true
     val result: Option[T] = try {
       val res = putBody(putBlockInfo)
@@ -1083,6 +1083,7 @@ private[spark] class BlockManager(
       classTag: ClassTag[T],
       tellMaster: Boolean = true,
       keepReadLock: Boolean = false): Option[PartiallyUnrolledIterator[T]] = {
+    val isDebugEnabled = log.isDebugEnabled
     doPut(blockId, level, classTag, tellMaster = tellMaster, keepReadLock = keepReadLock) { info =>
       val startTimeMs = if (isDebugEnabled) System.currentTimeMillis else 0L
       var iteratorFromFailedMemoryStorePut: Option[PartiallyUnrolledIterator[T]] = None
@@ -1323,18 +1324,18 @@ private[spark] class BlockManager(
       replication = 1)
 
     val numPeersToReplicateTo = level.replication - 1
+
+    val isDebugEnabled = log.isDebugEnabled
     val startTime = if (isDebugEnabled) System.nanoTime else 0L
 
-    val peersReplicatedTo = mutable.HashSet.empty ++ existingReplicas
-    val peersFailedToReplicateTo = mutable.HashSet.empty[BlockManagerId]
+    var peersReplicatedTo = mutable.HashSet.empty[BlockManagerId]
+    var peersFailedToReplicateTo = mutable.HashSet.empty[BlockManagerId]
     var numFailures = 0
-
-    val initialPeers = getPeers(false).filterNot(existingReplicas.contains)
 
     var peersForReplication = blockReplicationPolicy.prioritize(
       blockManagerId,
-      initialPeers,
-      peersReplicatedTo,
+      getPeers(false),
+      mutable.HashSet.empty,
       blockId,
       numPeersToReplicateTo)
 

@@ -60,7 +60,7 @@ private[spark] class DiskStore(
       throw new IllegalStateException(s"Block $blockId is already present in the disk store")
     }
     logDebug(s"Attempting to put block $blockId")
-    val startTime = if (isDebugEnabled) System.currentTimeMillis else 0L
+    val startTime = if (log.isDebugEnabled) System.currentTimeMillis else 0L
     val file = diskManager.getFile(blockId)
     val out = new CountingWritableChannel(openForWrite(file))
     var threwException: Boolean = true

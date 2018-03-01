@@ -227,6 +227,7 @@ private[spark] class TorrentBroadcast[T: ClassTag](obj: T, id: Long)
             }
           case None =>
             logInfo("Started reading broadcast variable " + id)
+            val isDebugEnabled = log.isDebugEnabled
             val startTimeMs = if (isDebugEnabled) System.currentTimeMillis() else 0L
             val blocks = readBlocks()
             if (isDebugEnabled) logDebug("Reading broadcast variable " + id + " took" +
