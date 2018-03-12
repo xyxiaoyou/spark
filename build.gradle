@@ -58,7 +58,7 @@ allprojects {
     protobufVersion = '2.5.0'
     jerseyVersion = '2.26'
     sunJerseyVersion = '1.19.4'
-    jettyVersion = '9.2.22.v20170606'
+    jettyVersion = '9.3.20.v20170531'
     log4jVersion = '1.2.17'
     slf4jVersion = '1.7.25'
     junitVersion = '4.12'
@@ -96,7 +96,7 @@ allprojects {
     xbeanAsm5Version = '4.5'
     scalatestVersion = '2.2.6'
     pegdownVersion = '1.6.0'
-
+    commonsCryptoVersion = '1.0.0'
     shadePackageName = 'org.spark_project'
   }
 
