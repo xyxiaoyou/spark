@@ -66,9 +66,9 @@ public class ByteArrayMethods {
     long endOffset = leftOffset + length;
     // try to align at least one side
     if ((rightOffset & 0x7) != 0 && (leftOffset & 0x7) != 0) { // mod 8
-      final long endOffset = Math.min(((leftOffset + 7) >>> 3) << 3, leftOffset + length);
+      final long alignedOffset = Math.min(((leftOffset + 7) >>> 3) << 3, endOffset);
       if (Platform.unaligned()) {
-        if (leftOffset <= (endOffset - 4)) {
+        if (leftOffset <= (alignedOffset - 4)) {
           if (Platform.getInt(leftBase, leftOffset) !=
               Platform.getInt(rightBase, rightOffset)) {
             return false;
@@ -77,7 +77,7 @@ public class ByteArrayMethods {
           rightOffset += 4;
         }
       }
-      while (leftOffset < endOffset) {
+      while (leftOffset < alignedOffset) {
         if (Platform.getByte(leftBase, leftOffset) !=
             Platform.getByte(rightBase, rightOffset)) {
           return false;
@@ -86,7 +86,6 @@ public class ByteArrayMethods {
         rightOffset++;
       }
     }
-    long endOffset = leftOffset + length;
     // for architectures that support unaligned accesses, chew it up 8 bytes at a time
     if (Platform.unaligned() || (((leftOffset & 0x7) == 0) && ((rightOffset & 0x7) == 0))) {
       endOffset -= 8;
