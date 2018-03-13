@@ -149,7 +149,7 @@ case class Filter(condition: Expression, child: LogicalPlan)
 
   override def maxRows: Option[Long] = child.maxRows
 
-  override lazy val statistics: Statistics = {
+  override lazy val stats: Statistics = {
     // Expected filtering by expressions based on some constants for now.
     def expectedFilterDivisor(cond: Expression): Int = cond match {
       case EqualTo(_, _) => 10
@@ -169,7 +169,7 @@ case class Filter(condition: Expression, child: LogicalPlan)
       case _ => 1
     }
 
-    child.statistics.copy(sizeInBytes = child.statistics.sizeInBytes /
+    child.stats.copy(sizeInBytes = child.stats.sizeInBytes /
         expectedFilterDivisor(condition))
   }
 
@@ -385,16 +385,16 @@ case class Join(
     case _ => resolvedExceptNatural
   }
 
-  override lazy val statistics: Statistics = joinType match {
+  override lazy val stats: Statistics = joinType match {
     case LeftAnti | LeftSemi =>
       // LeftSemi and LeftAnti won't ever be bigger than left
-      left.statistics.copy()
+      left.stats.copy()
     case _ if ExtractEquiJoinKeys.unapply(this).isDefined =>
-      Statistics(sizeInBytes = children.map(_.statistics.sizeInBytes).sum)
+      Statistics(sizeInBytes = children.map(_.stats.sizeInBytes).sum)
     case _ =>
       // make sure we don't propagate isBroadcastable in other joins, because
       // they could explode the size.
-      super.statistics.copy(isBroadcastable = false)
+      super.stats.copy(isBroadcastable = false)
   }
 }
 
@@ -451,12 +451,12 @@ case class InsertIntoDir(
     storage: CatalogStorageFormat,
     provider: Option[String],
     child: LogicalPlan,
-    overwrite: Boolean = true,
-    ifNotExists: Boolean)
+    overwrite: Boolean = true)
   extends LogicalPlan {
 
   override def output: Seq[Attribute] = Seq.empty
   override lazy val resolved: Boolean = false
+  override def children: Seq[LogicalPlan] = child :: Nil
 }
 
 /**
@@ -608,11 +608,11 @@ case class Aggregate(
     child.constraints.union(getAliasedConstraints(nonAgg))
   }
 
-  override lazy val statistics: Statistics = {
+  override lazy val stats: Statistics = {
     if (groupingExpressions.isEmpty) {
-      super.statistics.copy(sizeInBytes = 1)
+      super.stats.copy(sizeInBytes = 1)
     } else {
-      val stats = super.statistics
+      val stats = super.stats
       stats.copy(sizeInBytes = stats.sizeInBytes / 2)
     }
   }
