@@ -1105,5 +1105,8 @@ private class FullOuterIterator(
     r
   }
 
-  override def getRow: InternalRow = resultProj(joinedRow.withLeft(lastLeftRow))
+  override def getRow: InternalRow = if (joinedRow.row1.isInstanceOf[GenericInternalRow] &&
+      lastLeftRow.isInstanceOf[UnsafeRow]) {
+    resultProj(joinedRow.withLeft(lastLeftRow))
+  } else resultProj(joinedRow)
 }
