@@ -1073,7 +1073,7 @@ private class FullOuterIterator(
 
   override def advanceNext(): Boolean = {
     var r = smjScanner.advanceNext()
-    if (r) {
+    if (SortMergeJoinExec.isCaseOfSortedInsertValue && r) {
       // scalastyle:off
       // println(s"VB advanceNext: $joinedRow ${joinedRow.row1.getClass.getSimpleName}
       // ${joinedRow.row2.getClass.getSimpleName}")
@@ -1101,12 +1101,12 @@ private class FullOuterIterator(
         }
         numRows += 1
       }
-    }
+    } else if (r) numRows += 1
     r
   }
 
-  override def getRow: InternalRow = if (joinedRow.row1.isInstanceOf[GenericInternalRow] &&
-      lastLeftRow.isInstanceOf[UnsafeRow]) {
+  override def getRow: InternalRow = if (SortMergeJoinExec.isCaseOfSortedInsertValue &&
+      joinedRow.row1.isInstanceOf[GenericInternalRow] && lastLeftRow.isInstanceOf[UnsafeRow]) {
     resultProj(joinedRow.withLeft(lastLeftRow))
   } else resultProj(joinedRow)
 }
