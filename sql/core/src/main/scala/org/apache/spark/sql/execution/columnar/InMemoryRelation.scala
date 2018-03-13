@@ -39,10 +39,6 @@ object InMemoryRelation {
       child: SparkPlan,
       tableName: Option[String]): InMemoryRelation =
     new InMemoryRelation(child.output, useCompression, batchSize, storageLevel, child, tableName)()
-
-  // TODO VB: Temporary, remove this
-  var isCaseOfSortedInsertValue: Boolean = false
-  var isDebugMode: Boolean = false
 }
 
 

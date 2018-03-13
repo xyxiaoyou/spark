@@ -575,6 +575,12 @@ case class SortMergeJoinExec(
   }
 }
 
+object SortMergeJoinExec {
+  // TODO VB: Temporary, remove this
+  var isCaseOfSortedInsertValue: Boolean = false
+  var isDebugMode: Boolean = false
+}
+
 /**
  * Helper class that is used to implement [[SortMergeJoinExec]].
  *
