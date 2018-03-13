@@ -16,7 +16,7 @@
  */
 
 description = 'Spark Project REPL'
-
+evaluationDependsOn(getParent().getPath())
 dependencies {
   compile project(subprojectBase + 'snappy-spark-core_' + scalaBinaryVersion)
   compile project(subprojectBase + 'snappy-spark-sql_' + scalaBinaryVersion)
