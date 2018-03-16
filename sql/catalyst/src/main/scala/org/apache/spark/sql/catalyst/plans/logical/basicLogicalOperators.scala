@@ -394,7 +394,7 @@ case class Join(
     case _ =>
       // make sure we don't propagate isBroadcastable in other joins, because
       // they could explode the size.
-      super.stats.copy(isBroadcastable = false)
+      super.stats.copy(hints = HintInfo(broadcast = false))
   }
 }
 

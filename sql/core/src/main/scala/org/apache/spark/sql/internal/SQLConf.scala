@@ -29,7 +29,6 @@ import org.apache.parquet.hadoop.ParquetOutputCommitter
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config._
 import org.apache.spark.network.util.ByteUnit
-import org.apache.spark.sql.catalyst.CatalystConf
 import org.apache.spark.sql.execution.datasources.SQLHadoopMapReduceCommitProtocol
 import org.apache.spark.sql.execution.streaming.ManifestFileCommitProtocol
 import org.apache.spark.util.Utils
@@ -636,7 +635,7 @@ object SQLConf {
  *
  * SQLConf is thread-safe (internally synchronized, so safe to be used in multiple threads).
  */
-private[sql] class SQLConf extends Serializable with CatalystConf with Logging {
+private[sql] class SQLConf extends Serializable with Logging {
   import SQLConf._
 
   /** Only low degree of contention is expected for conf, thus NOT using ConcurrentHashMap. */
@@ -790,7 +789,7 @@ private[sql] class SQLConf extends Serializable with CatalystConf with Logging {
 
   def dataFramePivotMaxValues: Int = getConf(DATAFRAME_PIVOT_MAX_VALUES)
 
-  override def runSQLonFile: Boolean = getConf(RUN_SQL_ON_FILES)
+  def runSQLonFile: Boolean = getConf(RUN_SQL_ON_FILES)
 
   def enableTwoLevelAggMap: Boolean = getConf(ENABLE_TWOLEVEL_AGG_MAP)
 
@@ -802,11 +801,11 @@ private[sql] class SQLConf extends Serializable with CatalystConf with Logging {
 
   def ignoreCorruptFiles: Boolean = getConf(IGNORE_CORRUPT_FILES)
 
-  override def orderByOrdinal: Boolean = getConf(ORDER_BY_ORDINAL)
+  def orderByOrdinal: Boolean = getConf(ORDER_BY_ORDINAL)
 
-  override def groupByOrdinal: Boolean = getConf(GROUP_BY_ORDINAL)
+  def groupByOrdinal: Boolean = getConf(GROUP_BY_ORDINAL)
 
-  override def crossJoinEnabled: Boolean = getConf(SQLConf.CROSS_JOINS_ENABLED)
+  def crossJoinEnabled: Boolean = getConf(SQLConf.CROSS_JOINS_ENABLED)
 
   def ndvMaxError: Double = getConf(NDV_MAX_ERROR)
   /** ********************** SQLConf functionality methods ************ */
