@@ -39,7 +39,6 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.streaming.{StateStoreRestoreExec, StateStoreSaveExec}
-import org.apache.spark.sql.internal.SQLConf
 
 /**
  * Utility functions used by the query planner to convert our plan to new aggregation code path.
@@ -60,7 +59,7 @@ object AggUtils {
       aggregateExpressions = completeAggregateExpressions,
       aggregateAttributes = completeAggregateAttributes,
       initialInputBufferOffset = 0,
-      resultExpressions = resultExpressions,
+      resultExpressions,
       child = child
     ) :: Nil
   }
@@ -104,7 +103,7 @@ object AggUtils {
           aggregateExpressions = aggregateExpressions,
           aggregateAttributes = aggregateAttributes,
           initialInputBufferOffset = initialInputBufferOffset,
-          resultExpressions = resultExpressions,
+          resultExpressions,
           child = child)
       }
     }
