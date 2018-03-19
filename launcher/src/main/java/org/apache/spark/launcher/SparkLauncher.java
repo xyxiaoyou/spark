@@ -188,6 +188,7 @@ public class SparkLauncher extends AbstractLauncher<SparkLauncher> {
    */
   public SparkLauncher redirectError() {
     redirectErrorStream = true;
+    return this;
   }
 
   public SparkLauncher setConf(String key, String value) {
@@ -260,11 +261,6 @@ public class SparkLauncher extends AbstractLauncher<SparkLauncher> {
   @Override
   public SparkLauncher setPropertiesFile(String path) {
     return super.setPropertiesFile(path);
-  }
-
-  @Override
-  public SparkLauncher setConf(String key, String value) {
-    return super.setConf(key, value);
   }
 
   @Override
