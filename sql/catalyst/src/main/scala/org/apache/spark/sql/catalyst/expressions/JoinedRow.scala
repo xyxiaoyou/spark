@@ -27,8 +27,8 @@ import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
  * be instantiated once per thread and reused.
  */
 class JoinedRow extends InternalRow {
-  private[this] var row1: InternalRow = _
-  private[this] var row2: InternalRow = _
+  var row1: InternalRow = _
+  var row2: InternalRow = _
 
   def this(left: InternalRow, right: InternalRow) = {
     this()

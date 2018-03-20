@@ -575,6 +575,12 @@ case class SortMergeJoinExec(
   }
 }
 
+object SortMergeJoinExec {
+  // TODO VB: Temporary, remove this
+  var isCaseOfSortedInsertValue: Boolean = false
+  var isDebugMode: Boolean = false
+}
+
 /**
  * Helper class that is used to implement [[SortMergeJoinExec]].
  *
@@ -1063,12 +1069,44 @@ private class FullOuterIterator(
     resultProj: InternalRow => InternalRow,
     numRows: SQLMetric) extends RowIterator {
   private[this] val joinedRow: JoinedRow = smjScanner.getJoinedRow()
+  private[this] var lastLeftRow: InternalRow = null
 
   override def advanceNext(): Boolean = {
-    val r = smjScanner.advanceNext()
-    if (r) numRows += 1
+    var r = smjScanner.advanceNext()
+    if (SortMergeJoinExec.isCaseOfSortedInsertValue && r) {
+      // scalastyle:off
+      // println(s"VB advanceNext: $joinedRow ${joinedRow.row1.getClass.getSimpleName}
+      // ${joinedRow.row2.getClass.getSimpleName}")
+      // scalastyle:on
+      //
+      // Null row if GenericInternalRow and other is UnsafeRow
+      var rightRow = joinedRow.row2
+      if (joinedRow.row1.isInstanceOf[UnsafeRow]) {
+        lastLeftRow = joinedRow.row1
+      }
+      while (r && rightRow.isInstanceOf[GenericInternalRow]) {
+        r = smjScanner.advanceNext()
+        if (r) {
+          rightRow = joinedRow.row2
+          if (joinedRow.row1.isInstanceOf[UnsafeRow]) {
+            lastLeftRow = joinedRow.row1
+          }
+        }
+      }
+      if (r) {
+        if (SortMergeJoinExec.isDebugMode) {
+          // scalastyle:off
+          println(s"VB advanceNext final: $joinedRow ${lastLeftRow.getLong(0)} ${rightRow.getLong(0)}")
+          // scalastyle:on
+        }
+        numRows += 1
+      }
+    } else if (r) numRows += 1
     r
   }
 
-  override def getRow: InternalRow = resultProj(joinedRow)
+  override def getRow: InternalRow = if (SortMergeJoinExec.isCaseOfSortedInsertValue &&
+      joinedRow.row1.isInstanceOf[GenericInternalRow] && lastLeftRow.isInstanceOf[UnsafeRow]) {
+    resultProj(joinedRow.withLeft(lastLeftRow))
+  } else resultProj(joinedRow)
 }
