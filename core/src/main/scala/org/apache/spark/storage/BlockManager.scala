@@ -1578,7 +1578,6 @@ private[spark] object BlockManager {
     }
     blockManagers.toMap
   }
-<<<<<<< HEAD
 
   private class ShuffleMetricsSource(
       override val sourceName: String,

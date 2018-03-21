@@ -24,6 +24,7 @@ include ':snappy-spark-graphx_' + scalaBinaryVersion
 include ':snappy-spark-mllib_' + scalaBinaryVersion
 include ':snappy-spark-mllib-local_' + scalaBinaryVersion
 include ':snappy-spark-tools_' + scalaBinaryVersion
+include ':snappy-spark-kvstore_' + scalaBinaryVersion
 include ':snappy-spark-network-common_' + scalaBinaryVersion
 include ':snappy-spark-network-shuffle_' + scalaBinaryVersion
 include ':snappy-spark-network-yarn_' + scalaBinaryVersion
@@ -53,6 +54,7 @@ project(':snappy-spark-graphx_' + scalaBinaryVersion).projectDir = "$rootDir/gra
 project(':snappy-spark-mllib_' + scalaBinaryVersion).projectDir = "$rootDir/mllib" as File
 project(':snappy-spark-mllib-local_' + scalaBinaryVersion).projectDir = "$rootDir/mllib-local" as File
 project(':snappy-spark-tools_' + scalaBinaryVersion).projectDir = "$rootDir/tools" as File
+project(':snappy-spark-kvstore_' + scalaBinaryVersion).projectDir = "$rootDir/common/kvstore" as File
 project(':snappy-spark-network-common_' + scalaBinaryVersion).projectDir = "$rootDir/common/network-common" as File
 project(':snappy-spark-network-shuffle_' + scalaBinaryVersion).projectDir = "$rootDir/common/network-shuffle" as File
 project(':snappy-spark-network-yarn_' + scalaBinaryVersion).projectDir = "$rootDir/common/network-yarn" as File
