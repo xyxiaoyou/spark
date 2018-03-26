@@ -51,8 +51,7 @@ case class SortMergeJoinExec(
         left.output ++ right.output.map(_.withNullability(true))
       case RightOuter =>
         left.output.map(_.withNullability(true)) ++ right.output
-      case FullOuter =>
-        (left.output ++ right.output).map(_.withNullability(true))
+      case FullOuter => (left.output ++ right.output).map(_.withNullability(true))
       case j: ExistenceJoin =>
         left.output :+ j.exists
       case LeftExistence(_) =>
@@ -69,7 +68,9 @@ case class SortMergeJoinExec(
     // For left and right outer joins, the output is partitioned by the streamed input's join keys.
     case LeftOuter => left.outputPartitioning
     case RightOuter => right.outputPartitioning
-    case FullOuter => UnknownPartitioning(left.outputPartitioning.numPartitions)
+    case FullOuter => if (SortMergeJoinExec.isCaseOfSortedInsertValue) {
+      left.outputPartitioning
+    } else UnknownPartitioning(left.outputPartitioning.numPartitions)
     case LeftExistence(_) => left.outputPartitioning
     case x =>
       throw new IllegalArgumentException(
@@ -84,7 +85,22 @@ case class SortMergeJoinExec(
     case LeftOuter => requiredOrders(leftKeys)
     case RightOuter => requiredOrders(rightKeys)
     // There are null rows in both streams, so there is no order.
-    case FullOuter => Nil
+    case FullOuter => if (SortMergeJoinExec.isCaseOfSortedInsertValue) {
+      // Copied from ColumnTableScan
+      val buffer = new ArrayBuffer[SortOrder](2)
+      // sorted on [batchId, ordinal (position within batch)] for update/delete
+      left.output.foreach {
+        case attr if attr.name.equalsIgnoreCase(SortMergeJoinExec.mutableKeyNames(1)) =>
+          // batchId
+          // ensure batchId is the first one in Seq[SortOrder]
+          SortMergeJoinExec.getColumnUpdateDeleteOrdering(attr) +=: buffer
+        case attr if attr.name.equalsIgnoreCase(SortMergeJoinExec.mutableKeyNames.head) =>
+          // ordinal
+          buffer += SortMergeJoinExec.getColumnUpdateDeleteOrdering(attr)
+        case _ =>
+      }
+      buffer
+    } else Nil
     case _: InnerLike | LeftExistence(_) => requiredOrders(leftKeys)
     case x =>
       throw new IllegalArgumentException(
@@ -579,6 +595,23 @@ object SortMergeJoinExec {
   // TODO VB: Temporary, remove this
   var isCaseOfSortedInsertValue: Boolean = false
   var isDebugMode: Boolean = false
+
+  // Copied from ColumnDelta
+  private val mutableKeyNamePrefix = "SNAPPYDATA_INTERNAL_COLUMN_"
+  private val mutableKeyNames: Seq[String] = Seq(
+    mutableKeyNamePrefix + "ROW_ORDINAL",
+    mutableKeyNamePrefix + "BATCH_ID",
+    mutableKeyNamePrefix + "BUCKET_ORDINAL",
+    mutableKeyNamePrefix + "BATCH_NUMROWS"
+  )
+
+  // Copied from StoreUtils
+  def getColumnUpdateDeleteOrdering(batchIdColumn: Attribute): SortOrder = {
+    // this always sets ascending order though no particular ordering is required rather
+    // just grouping on batchId column, but does not matter so table scan should also
+    // set the same to not introduce any extra sorting for simple updates/deletes
+    SortOrder(batchIdColumn, Ascending)
+  }
 }
 
 /**
