@@ -51,7 +51,8 @@ case class SortMergeJoinExec(
         left.output ++ right.output.map(_.withNullability(true))
       case RightOuter =>
         left.output.map(_.withNullability(true)) ++ right.output
-      case FullOuter => (left.output ++ right.output).map(_.withNullability(true))
+      case FullOuter =>
+        (left.output ++ right.output).map(_.withNullability(true))
       case j: ExistenceJoin =>
         left.output :+ j.exists
       case LeftExistence(_) =>
@@ -1104,9 +1105,9 @@ private class FullOuterIterator(
   private[this] val joinedRow: JoinedRow = smjScanner.getJoinedRow()
   private[this] var lastLeftRow: InternalRow = null
 
-  override def advanceNext(): Boolean = {
+  override def advanceNext(): Boolean = if (SortMergeJoinExec.isCaseOfSortedInsertValue) {
     var r = smjScanner.advanceNext()
-    if (SortMergeJoinExec.isCaseOfSortedInsertValue && r) {
+    if (r) {
       // scalastyle:off
       // println(s"VB advanceNext: $joinedRow ${joinedRow.row1.getClass.getSimpleName}
       // ${joinedRow.row2.getClass.getSimpleName}")
@@ -1128,18 +1129,25 @@ private class FullOuterIterator(
       }
       if (r) {
         if (SortMergeJoinExec.isDebugMode) {
+          val l = if (lastLeftRow.isInstanceOf[UnsafeRow]) lastLeftRow.getLong(0) else "null"
+          val r = if (rightRow.isInstanceOf[UnsafeRow]) rightRow.getLong(0) else "null"
           // scalastyle:off
-          println(s"VB advanceNext final: $joinedRow ${lastLeftRow.getLong(0)} ${rightRow.getLong(0)}")
+          println(s"VB advanceNext final: $joinedRow $l $r")
           // scalastyle:on
         }
         numRows += 1
       }
-    } else if (r) numRows += 1
+    }
+    r
+  } else {
+    // Original
+    val r = smjScanner.advanceNext()
+    if (r) numRows += 1
     r
   }
 
   override def getRow: InternalRow = if (SortMergeJoinExec.isCaseOfSortedInsertValue &&
       joinedRow.row1.isInstanceOf[GenericInternalRow] && lastLeftRow.isInstanceOf[UnsafeRow]) {
     resultProj(joinedRow.withLeft(lastLeftRow))
-  } else resultProj(joinedRow)
+  } else resultProj(joinedRow) // Original
 }
