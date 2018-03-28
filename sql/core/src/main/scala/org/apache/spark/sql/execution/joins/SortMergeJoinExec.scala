@@ -1063,6 +1063,7 @@ private class SortMergeFullOuterJoinScanner(
   // --- Public methods --------------------------------------------------------------------------
 
   def getJoinedRow(): JoinedRow = joinedRow
+  def getLeftRow(): InternalRow = leftRow // TODO VB: Temporary
 
   def advanceNext(): Boolean = {
     // If we already buffered some matching rows, use them directly
@@ -1103,11 +1104,15 @@ private class FullOuterIterator(
     resultProj: InternalRow => InternalRow,
     numRows: SQLMetric) extends RowIterator {
   private[this] val joinedRow: JoinedRow = smjScanner.getJoinedRow()
-  private[this] var lastLeftRow: InternalRow = null
+  private[this] var lastLeftRow: Option[InternalRow] = None
+  private[this] var firstLeftRow: Option[InternalRow] = None
 
   override def advanceNext(): Boolean = if (SortMergeJoinExec.isCaseOfSortedInsertValue) {
     var r = smjScanner.advanceNext()
     if (r) {
+      if (firstLeftRow.isEmpty) {
+        firstLeftRow = Some(smjScanner.getLeftRow())
+      }
       // scalastyle:off
       // println(s"VB advanceNext: $joinedRow ${joinedRow.row1.getClass.getSimpleName}
       // ${joinedRow.row2.getClass.getSimpleName}")
@@ -1116,20 +1121,20 @@ private class FullOuterIterator(
       // Null row if GenericInternalRow and other is UnsafeRow
       var rightRow = joinedRow.row2
       if (joinedRow.row1.isInstanceOf[UnsafeRow]) {
-        lastLeftRow = joinedRow.row1
+        lastLeftRow = Some(joinedRow.row1)
       }
       while (r && rightRow.isInstanceOf[GenericInternalRow]) {
         r = smjScanner.advanceNext()
         if (r) {
           rightRow = joinedRow.row2
           if (joinedRow.row1.isInstanceOf[UnsafeRow]) {
-            lastLeftRow = joinedRow.row1
+            lastLeftRow = Some(joinedRow.row1)
           }
         }
       }
       if (r) {
         if (SortMergeJoinExec.isDebugMode) {
-          val l = if (lastLeftRow.isInstanceOf[UnsafeRow]) lastLeftRow.getLong(0) else "null"
+          val l = if (lastLeftRow.isDefined) lastLeftRow.get.getLong(0) else "null"
           val r = if (rightRow.isInstanceOf[UnsafeRow]) rightRow.getLong(0) else "null"
           // scalastyle:off
           println(s"VB advanceNext final: $joinedRow $l $r")
@@ -1146,8 +1151,11 @@ private class FullOuterIterator(
     r
   }
 
-  override def getRow: InternalRow = if (SortMergeJoinExec.isCaseOfSortedInsertValue &&
-      joinedRow.row1.isInstanceOf[GenericInternalRow] && lastLeftRow.isInstanceOf[UnsafeRow]) {
-    resultProj(joinedRow.withLeft(lastLeftRow))
+  override def getRow: InternalRow = if (SortMergeJoinExec.isCaseOfSortedInsertValue) {
+    if (lastLeftRow.isDefined) {
+      resultProj(joinedRow.withLeft(lastLeftRow.get))
+    } else if (firstLeftRow.isDefined) {
+      resultProj(joinedRow.withLeft(firstLeftRow.get))
+    } else resultProj(joinedRow)
   } else resultProj(joinedRow) // Original
 }
