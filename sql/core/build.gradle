@@ -29,6 +29,10 @@ dependencies {
   compile group: 'org.eclipse.jetty', name: 'jetty-servlet', version: jettyVersion
   compile group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: jacksonBindVersion
   compile group: 'org.apache.xbean', name: 'xbean-asm5-shaded', version: xbeanAsm5Version
+  compile('org.apache.orc:orc-core:1.4.1:nohive')
+  compile('org.apache.orc:orc-mapreduce:1.4.1:nohive')
+
+//  compile group: 'org.apache.orc', name: 'orc-mapreduce', version: '1.4.1'
 
   testCompile project(path: subprojectBase + 'snappy-spark-core_' + scalaBinaryVersion, configuration: 'testOutput')
   testCompile project(path: subprojectBase + 'snappy-spark-catalyst_' + scalaBinaryVersion, configuration: 'testOutput')

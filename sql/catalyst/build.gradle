@@ -23,6 +23,7 @@ dependencies {
   compile project(subprojectBase + 'snappy-spark-core_' + scalaBinaryVersion)
   compile project(subprojectBase + 'snappy-spark-unsafe_' + scalaBinaryVersion)
   compile project(subprojectBase + 'snappy-spark-tags_' + scalaBinaryVersion)
+  compile project(subprojectBase + 'snappy-spark-sketch_' + scalaBinaryVersion)
 
   compile group: 'org.scala-lang', name: 'scala-compiler', version: scalaVersion
   // compile group: 'org.scala-lang.modules', name: 'scala-parser-combinators_' + scalaBinaryVersion, version: '1.0.4'

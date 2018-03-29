@@ -15,7 +15,7 @@
  * LICENSE file.
  */
 
-description = 'Spark Spark Project Local DB'
+description = 'Spark Project Local DB'
 
 dependencies {
     compile project(subprojectBase + 'snappy-spark-tags_' + scalaBinaryVersion)

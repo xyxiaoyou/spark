@@ -127,7 +127,7 @@ private[spark] class BlockManager(
     val blockTransferService: BlockTransferService,
     securityManager: SecurityManager,
     numUsableCores: Int)
-    extends BlockDataManager with BlockEvictionHandler with Logging {
+  extends BlockDataManager with BlockEvictionHandler with Logging {
 
   private[spark] val externalShuffleServiceEnabled =
     conf.getBoolean("spark.shuffle.service.enabled", false)
@@ -1341,7 +1341,6 @@ private[spark] class BlockManager(
     while(numFailures <= maxReplicationFailures &&
       !peersForReplication.isEmpty &&
       peersReplicatedTo.size < numPeersToReplicateTo) {
-
       val peer = peersForReplication.head
       try {
         val onePeerStartTime = if (isDebugEnabled) System.nanoTime else 0L

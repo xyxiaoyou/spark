@@ -524,8 +524,8 @@ private[spark] class TaskSetManager(
 
         sched.dagScheduler.taskStarted(task, info)
         new TaskDescription(
-          _taskId = taskId,
-          _attemptNumber = attemptNum,
+          taskId,
+          attemptNum,
           execId,
           taskName,
           index,

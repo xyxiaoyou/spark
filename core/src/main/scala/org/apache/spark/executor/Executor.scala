@@ -26,22 +26,21 @@ import java.util.Properties
 import java.util.concurrent._
 import javax.annotation.concurrent.GuardedBy
 
-import scala.collection.JavaConverters._
-import scala.collection.mutable.{ArrayBuffer, HashMap, Map}
-import scala.util.control.NonFatal
-
 import com.google.common.util.concurrent.ThreadFactoryBuilder
-
 import org.apache.spark._
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.internal.Logging
-import org.apache.spark.memory.{SparkOutOfMemoryError, TaskMemoryManager}
+import org.apache.spark.memory.TaskMemoryManager
 import org.apache.spark.rpc.RpcTimeout
-import org.apache.spark.scheduler.{AccumulableInfo, DirectTaskResult, IndirectTaskResult, Task, TaskDescription}
+import org.apache.spark.scheduler.{DirectTaskResult, IndirectTaskResult, Task, TaskDescription}
 import org.apache.spark.shuffle.FetchFailedException
 import org.apache.spark.storage.{StorageLevel, TaskResultBlockId}
 import org.apache.spark.util._
 import org.apache.spark.util.io.ChunkedByteBuffer
+
+import scala.collection.JavaConverters._
+import scala.collection.mutable.{ArrayBuffer, HashMap}
+import scala.util.control.NonFatal
 
 /**
  * Spark executor, backed by a threadpool to run tasks.
@@ -214,21 +213,6 @@ private[spark] class Executor(
       killTask(t, interruptThread = interruptThread, reason = reason))
   }
 
-  /**
-   * Function to kill the running tasks in an executor.
-   * This can be called by executor back-ends to kill the
-   * tasks instead of taking the JVM down.
-   * @param interruptThread whether to interrupt the task thread
-   */
-  def killAllTasks(interruptThread: Boolean) : Unit = {
-    // kill all the running tasks
-    for (taskRunner <- runningTasks.values().asScala) {
-      if (taskRunner != null) {
-        taskRunner.kill(interruptThread)
-      }
-    }
-  }
-
   def stop(): Unit = {
     env.metricsSystem.report()
     heartbeater.shutdown()
@@ -246,13 +230,7 @@ private[spark] class Executor(
 
   class TaskRunner(
       execBackend: ExecutorBackend,
-      private val taskDescription: TaskDescription,
-      val taskId: Long,
-      val attemptNumber: Int,
-      taskName: String,
-      serializedTask: ByteBuffer,
-      taskDataBytes: Array[Byte],
-      taskDecompressTime: Long)
+      private val taskDescription: TaskDescription)
     extends Runnable {
 
     val taskId = taskDescription.taskId
@@ -328,12 +306,12 @@ private[spark] class Executor(
       try {
         // Must be set before updateDependencies() is called, in case fetching dependencies
         // requires access to properties contained within (e.g. for access control).
-        Executor.taskDeserializationProps.set(taskDescription.properties)
+//        Executor.taskDeserializationProps.set(taskDescription.properties)
 
-        updateDependencies(taskDescription.addedFiles, taskDescription.addedJars)
+//        updateDependencies(taskDescription.addedFiles, taskDescription.addedJars)
         task = ser.deserialize[Task[Any]](
           taskDescription.serializedTask, Thread.currentThread.getContextClassLoader)
-        task.localProperties = taskDescription.properties
+//        task.localProperties = taskDescription.properties
         task.setTaskMemoryManager(taskMemoryManager)
         // If this task has been killed before we deserialized it, let's quit now. Otherwise,
         // continue executing the task.
@@ -412,7 +390,7 @@ private[spark] class Executor(
         // Deserialization happens in two parts: first, we deserialize a Task object, which
         // includes the Partition. Second, Task.run() deserializes the RDD and function to be run.
         task.metrics.setExecutorDeserializeTime(math.max(taskStart - deserializeStartTime +
-          task.executorDeserializeTime + taskDecompressTime, 0L).toDouble / 1000000.0)
+          task.executorDeserializeTime /* + taskDecompressTime */, 0L).toDouble / 1000000.0)
         task.metrics.setExecutorDeserializeCpuTime(math.max(taskStartCpu -
           deserializeStartCpuTime + task.executorDeserializeCpuTime, 0L).toDouble / 1000000.0)
         // We need to subtract Task.run()'s deserialization time to avoid double-counting
@@ -465,11 +443,10 @@ private[spark] class Executor(
 
         // Note: accumulator updates must be collected after TaskMetrics is updated
         val accumUpdates = task.collectAccumulatorUpdates()
-        val directResult = new DirectTaskResult(value, accumUpdates,
-           Some(task.metrics.resultSerializationTimeMetric))
-        val taskSer = env.serializer.newInstance()
-        val serializedDirectResult = taskSer.serialize(directResult)
-        val resultSize = serializedDirectResult.limit
+        // TODO: do not serialize value twice
+        val directResult = new DirectTaskResult(value, accumUpdates)
+        val serializedDirectResult = ser.serialize(directResult)
+        val resultSize = serializedDirectResult.limit()
 
         // directSend = sending directly back to the driver
         val serializedResult: ByteBuffer = {
@@ -477,7 +454,7 @@ private[spark] class Executor(
             logWarning(s"Finished $taskName (TID $taskId). Result is larger than maxResultSize " +
               s"(${Utils.bytesToString(resultSize)} > ${Utils.bytesToString(maxResultSize)}), " +
               s"dropping it.")
-            taskSer.serialize(new IndirectTaskResult[Any](TaskResultBlockId(taskId), resultSize))
+            ser.serialize(new IndirectTaskResult[Any](TaskResultBlockId(taskId), resultSize))
           } else if (resultSize > maxDirectResultSize) {
             val blockId = TaskResultBlockId(taskId)
             env.blockManager.putBytes(
@@ -486,7 +463,7 @@ private[spark] class Executor(
               StorageLevel.MEMORY_AND_DISK_SER)
             logInfo(
               s"Finished $taskName (TID $taskId). $resultSize bytes result sent via BlockManager)")
-            taskSer.serialize(new IndirectTaskResult[Any](blockId, resultSize))
+            ser.serialize(new IndirectTaskResult[Any](blockId, resultSize))
           } else {
             logInfo(s"Finished $taskName (TID $taskId). $resultSize bytes result sent to driver")
             serializedDirectResult
@@ -590,7 +567,7 @@ private[spark] class Executor(
               Thread.getDefaultUncaughtExceptionHandler.
                   uncaughtException(Thread.currentThread(), t)
             } else {
-              SparkUncaughtExceptionHandler.uncaughtException(t)
+              // SparkUncaughtExceptionHandler.uncaughtException(t)
             }
           }
 

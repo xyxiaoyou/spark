@@ -755,9 +755,6 @@ case class HashAggregateExec(
     val hashExpr = Murmur3Hash(groupingExpressions, 42)
     val hashEval = BindReferences.bindReference(hashExpr, child.output).genCode(ctx)
 
-    val inputAttr = aggregateBufferAttributes ++ child.output
-    ctx.currentVars = new Array[ExprCode](aggregateBufferAttributes.length) ++ input
-
     val (checkFallbackForGeneratedHashMap, checkFallbackForBytesToBytesMap, resetCounter,
     incCounter) = if (testFallbackStartsAt.isDefined) {
       val countTerm = ctx.addMutableState(ctx.JAVA_INT, "fallbackCounter")

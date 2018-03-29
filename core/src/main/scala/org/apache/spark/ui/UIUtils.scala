@@ -241,7 +241,6 @@ private[spark] object UIUtils extends Logging {
             <div class="product-brand">
               <a href={prependBaseUri("/")} class="brand">
                 <img src={prependBaseUri("/static/snappydata/SnappyData-Logo-230X50.png")} />
-                {getProductUINameNode}
                 {getProductVersionNode}
               </a>
             </div>
@@ -309,7 +308,7 @@ private[spark] object UIUtils extends Logging {
               </a>
             </div>
             <p class="navbar-text pull-right">
-              <strong title={appName}>{shortAppName}</strong> application UI
+              <strong title={appName}>{appName}</strong> application UI
             </p>
             {getProductDocLinkNode()}
             <ul class="nav">{header}</ul>

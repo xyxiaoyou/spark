@@ -34,7 +34,7 @@ import org.apache.spark.util.{AccumulatorContext, AccumulatorV2, AccumulatorV2Kr
  * the executor side are automatically propagated and shown in the SQL UI through metrics. Updates
  * on the driver side must be explicitly posted using [[SQLMetrics.postDriverMetricUpdates()]].
  */
-final class SQLMetric(val metricType: String, initValue: Long = 0L)
+final class SQLMetric(var metricType: String, initValue: Long = 0L)
   extends AccumulatorV2Kryo[Long, Long] with KryoSerializable {
   // This is a workaround for SPARK-11013.
   // We may use -1 as initial value of the accumulator, if the accumulator is valid, we will

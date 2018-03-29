@@ -63,12 +63,12 @@ private[spark] class ResultTask[T, U](
     locs: Seq[TaskLocation],
     private var _outputId: Int,
     localProperties: Properties,
-    metrics: TaskMetrics,
-    jobId: Int = -1,
+    serializedTaskMetrics: Array[Byte],
+    jobId: Option[Int] = None,
     appId: Option[String] = None,
     appAttemptId: Option[String] = None)
   extends Task[U](stageId, stageAttemptId, partition.index, _taskData,
-    _taskBinary, metrics, localProperties, jobId, appId, appAttemptId)
+    _taskBinary, localProperties, serializedTaskMetrics, jobId, appId, appAttemptId)
   with Serializable with KryoSerializable {
 
   final def outputId: Int = _outputId

@@ -47,8 +47,6 @@ import org.apache.spark.shuffle.ShuffleWriter
  * @param partition partition of the RDD this task is associated with
  * @param locs preferred task execution locations for locality scheduling
  * @param localProperties copy of thread-local properties set by the user on the driver side.
- * @param serializedTaskMetrics a `TaskMetrics` that is created and serialized on the driver side
- *                              and sent to executor side.
  *
  * The parameters below are optional:
  * @param jobId id of the job this task belongs to
@@ -63,17 +61,18 @@ private[spark] class ShuffleMapTask(
     private var partition: Partition,
     @transient private var locs: Seq[TaskLocation],
     localProperties: Properties,
-    jobId: Int = -1,
+    serializedTaskMetrics: Array[Byte],
+    jobId: Option[Int] = None,
     appId: Option[String] = None,
     appAttemptId: Option[String] = None)
   extends Task[MapStatus](stageId, stageAttemptId, partition.index, _taskData,
-    _taskBinary, metrics, localProperties, jobId, appId, appAttemptId)
+    _taskBinary, localProperties, serializedTaskMetrics, jobId, appId, appAttemptId)
   with KryoSerializable with Logging {
 
   /** A constructor used only in test suites. This does not require passing in an RDD. */
   def this(partitionId: Int) {
     this(0, 0, TaskData.EMPTY, null, new Partition { override def index: Int = 0 },
-      null, null, new Properties)
+      null, new Properties, null)
   }
 
   @transient private val preferredLocs: Seq[TaskLocation] = {

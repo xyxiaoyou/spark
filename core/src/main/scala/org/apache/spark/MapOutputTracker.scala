@@ -693,6 +693,7 @@ private[spark] class MapOutputTrackerWorker(conf: SparkConf) extends MapOutputTr
     val statuses = mapStatuses.get(shuffleId).orNull
     if (statuses == null) {
       logInfo("Don't have map outputs for shuffle " + shuffleId + ", fetching them")
+      val isDebugEnabled = log.isDebugEnabled
       val startTime = if (isDebugEnabled) System.currentTimeMillis else 0L
       var fetchedStatuses: Array[MapStatus] = null
       fetching.synchronized {

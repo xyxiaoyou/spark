@@ -17,13 +17,8 @@
 
 package org.apache.spark.sql
 
-import java.beans.{BeanInfo, Introspector, PropertyDescriptor}
 import java.util.Properties
 
-import scala.collection.immutable
-import scala.reflect.runtime.universe.TypeTag
-
-import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.annotation.{DeveloperApi, Experimental, InterfaceStability}
 import org.apache.spark.api.java.{JavaRDD, JavaSparkContext}
 import org.apache.spark.internal.Logging
@@ -32,11 +27,15 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst._
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.execution.command.ShowTablesCommand
-import org.apache.spark.sql.internal.{SessionState, SharedState, SQLConf}
+import org.apache.spark.sql.internal.{SQLConf, SessionState, SharedState}
 import org.apache.spark.sql.sources.BaseRelation
 import org.apache.spark.sql.streaming.{DataStreamReader, StreamingQueryManager}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.ExecutionListenerManager
+import org.apache.spark.{SparkConf, SparkContext}
+
+import scala.collection.immutable
+import scala.reflect.runtime.universe.TypeTag
 
 /**
  * The entry point for working with structured data (rows and columns) in Spark 1.x.
@@ -1096,56 +1095,18 @@ object SQLContext {
    * method for internal use.
    */
   private[sql] def beansToRows(
-<<<<<<< HEAD
-      data: Iterator[_],
-      beanClass: Class[_],
-      attrs: Seq[AttributeReference]): Iterator[InternalRow] = {
+     data: Iterator[_],
+     beanClass: Class[_],
+     attrs: Seq[AttributeReference]): Iterator[InternalRow] = {
     val extractors =
       JavaTypeInference.getJavaBeanReadableProperties(beanClass).map(_.getReadMethod)
     val methodsToConverts = extractors.zip(attrs).map { case (e, attr) =>
       (e, CatalystTypeConverters.createToCatalystConverter(attr.dataType))
     }
     data.map { element =>
-||||||| parent of 61e5899... Snap 2061 (#83)
-        data: Iterator[_],
-        beanInfo: BeanInfo,
-        attrs: Seq[AttributeReference]): Iterator[InternalRow] = {
-    val extractors =
-      beanInfo.getPropertyDescriptors.filterNot(_.getName == "class").map(_.getReadMethod)
-    val methodsToConverts = extractors.zip(attrs).map { case (e, attr) =>
-      (e, CatalystTypeConverters.createToCatalystConverter(attr.dataType))
-    }
-    data.map{ element =>
-=======
-        data: Iterator[_],
-        beanInfo: BeanInfo,
-        attrs: Seq[AttributeReference]): Iterator[InternalRow] = {
-    val converters = getExtractors(beanInfo, attrs)
-    data.map{ element =>
->>>>>>> 61e5899... Snap 2061 (#83)
       new GenericInternalRow(
-        converters.map { case (e, convert) => convert(e.getReadMethod.invoke(element)) }
+        methodsToConverts.map { case (e, convert) => convert(e.invoke(element)) }
       ): InternalRow
-    }
-  }
-
-  def getExtractors(
-      beanInfo: BeanInfo,
-      attrs: Seq[AttributeReference]): Array[(PropertyDescriptor, Any => Any)] = {
-    val methodsToConverts = beanInfo.getPropertyDescriptors.
-        filterNot(_.getName == "class").zip(attrs)
-    methodsToConverts.map { case (desc, attr) =>
-      attr.dataType match {
-        case struct: StructType =>
-          val extractors = getExtractors(Introspector.getBeanInfo(desc.getPropertyType),
-            struct.toAttributes)
-          (desc, (x: Any) => {
-            val arr = Array.tabulate[Any](struct.length)(i =>
-              extractors(i)._2(extractors(i)._1.getReadMethod.invoke(x)))
-            new GenericInternalRow(arr)
-          })
-        case _ => (desc, CatalystTypeConverters.createToCatalystConverter(attr.dataType))
-      }
     }
   }
 

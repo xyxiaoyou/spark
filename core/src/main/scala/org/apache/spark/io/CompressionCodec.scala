@@ -300,4 +300,12 @@ class ZStdCompressionCodec(conf: SparkConf) extends CompressionCodec {
     // avoid overhead excessive of JNI call while trying to uncompress small amount of data.
     new BufferedInputStream(new ZstdInputStream(s), bufferSize)
   }
+  override def compress(input: Array[Byte], inputLen: Int): Array[Byte] = {
+    throw new UnsupportedOperationException("not implemented")
+  }
+
+  override def decompress(input: Array[Byte], inputOffset: Int,
+                          inputLen: Int, outputLen: Int): Array[Byte] = {
+    throw new UnsupportedOperationException("not implemented")
+  }
 }

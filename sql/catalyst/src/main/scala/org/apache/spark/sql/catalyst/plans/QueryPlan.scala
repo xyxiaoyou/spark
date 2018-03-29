@@ -131,8 +131,8 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
     }
 
     def recursiveTransform(arg: Any): AnyRef = arg match {
-      case e: Expression => transformExpressionUp(e)
-      case Some(e: Expression) => Some(transformExpressionUp(e))
+      case e: Expression => transformExpression(e)
+      case Some(e: Expression) => Some(transformExpression(e))
       case Some(seq: Traversable[_]) => Some(seq.map(recursiveTransform))
       case m: Map[_, _] => m
       case d: DataType => d // Avoid unpacking Structs
@@ -319,14 +319,14 @@ object QueryPlan extends PredicateHelper {
       Nil
     }
   }
-
-  /** Args that have cleaned such that differences in expression id should not affect equality */
-  @transient protected lazy val cleanArgs: Seq[Any] = {
-    def cleanArg(arg: Any): Any = arg match {
-      // Children are checked using sameResult above.
-      case tn: TreeNode[_] if containsChild(tn) => null
-      case e: Expression => cleanExpression(e).canonicalized
-      case other => other
-    }
-  }
+//
+//  /** Args that have cleaned such that differences in expression id should not affect equality */
+//  @transient protected lazy val cleanArgs: Seq[Any] = {
+//    def cleanArg(arg: Any): Any = arg match {
+//      // Children are checked using sameResult above.
+//      case tn: TreeNode[_] if containsChild(tn) => null
+//      case e: Expression => cleanExpression(e).canonicalized
+//      case other => other
+//    }
+//  }
 }

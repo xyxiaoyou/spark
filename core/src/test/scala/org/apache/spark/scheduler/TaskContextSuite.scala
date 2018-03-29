@@ -66,8 +66,15 @@ class TaskContextSuite extends SparkFunSuite with BeforeAndAfter with LocalSpark
     val func = (c: TaskContext, i: Iterator[String]) => i.next()
     val taskBinary = sc.broadcast(JavaUtils.bufferToArray(closureSerializer.serialize((rdd, func))))
     val task = new ResultTask[String, String](
-      0, 0, taskBinary, rdd.partitions(0), Seq.empty, 0, new Properties,
-      closureSerializer.serialize(TaskMetrics.registered).array())
+      stageId = 1,
+      stageAttemptId = 0,
+      _taskData = TaskData.EMPTY,
+      _taskBinary = Some(taskBinary),
+      partition = rdd.partitions(0),
+      locs = Seq(),
+      _outputId = 0,
+      localProperties = new Properties(),
+      serializedTaskMetrics = null)
     intercept[RuntimeException] {
       task.run(0, 0, null)
     }
@@ -88,8 +95,15 @@ class TaskContextSuite extends SparkFunSuite with BeforeAndAfter with LocalSpark
     val func = (c: TaskContext, i: Iterator[String]) => i.next()
     val taskBinary = sc.broadcast(JavaUtils.bufferToArray(closureSerializer.serialize((rdd, func))))
     val task = new ResultTask[String, String](
-      0, 0, taskBinary, rdd.partitions(0), Seq.empty, 0, new Properties,
-      closureSerializer.serialize(TaskMetrics.registered).array())
+      stageId = 1,
+      stageAttemptId = 0,
+      _taskData = TaskData.EMPTY,
+      _taskBinary = Some(taskBinary),
+      partition = rdd.partitions(0),
+      locs = Seq(),
+      _outputId = 0,
+      localProperties = new Properties(),
+      serializedTaskMetrics = null)
     intercept[RuntimeException] {
       task.run(0, 0, null)
     }

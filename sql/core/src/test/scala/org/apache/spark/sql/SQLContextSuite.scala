@@ -141,46 +141,5 @@ class SQLContextSuite extends SparkFunSuite with SharedSparkContext {
         sqlContext.dropTempTable("tables")
     }
   }
-}
-class Person(var id: Int, var name: String, var longField: Long, var shortField: Short,
-             var byteField: Byte, var doubleField: Double, var floatField: Float,
-             var booleanField: Boolean, var binaryField: Array[Byte],
-             var datee: Date, var timeeStamp: Timestamp,
-             var address: Address  ) extends java.io.Serializable{
-  def this() = this(0, null, 0, 0, 0, 0d, 0f, false, null, null, null, null)
-  def getName: String = name
-  def getId: Int = id
-  def getLongField: Long = longField
-  def getShortField: Short = shortField
-  def getByteField: Byte = byteField
-  def getDoubleField: Double = doubleField
-  def getFloatField: Float = floatField
-  def getBooleanField: Boolean = booleanField
-  def getBinaryField: Array[Byte] = binaryField
-  def getDatee: Date = datee
-  def getTimeeStamp: Timestamp = timeeStamp
-  def getAddress: Address = address
 
-  def setName(name: String): Unit = {this.name = name}
-  def setId(id: Int): Unit = {this.id = id}
-  def setLongField(longField: Long): Unit = {this.longField = longField}
-  def setShortField(shortField: Short): Unit = {this.shortField = shortField}
-  def setByteField(byteField: Byte): Unit = {this.byteField = byteField}
-  def setDoubleField(doubleField: Double): Unit = {this.doubleField = doubleField}
-  def setFloatField(floatField: Float): Unit = {this.floatField = floatField}
-  def setBooleanField(booleanField: Boolean): Unit = {this.booleanField = booleanField}
-  def setBinaryField(binaryField: Array[Byte]): Unit = {this.binaryField = binaryField}
-  def setDatee(datee: Date): Unit = {this.datee = datee}
-  def setTimeeStamp(ts: Timestamp): Unit = {this.timeeStamp = ts}
-  def setAddress(address: Address): Unit = {this.address = address}
-}
-
-
-
-class Address(var street: String, var zip: Int) extends java.io.Serializable {
-  def this() = this(null, -1)
-  def getStreet: String = this.street
-  def getZip: Int = this.zip
-  def setStreet(street: String): Unit = {this.street = street}
-  def setZip(zip: Int): Unit = {this.zip = zip}
 }

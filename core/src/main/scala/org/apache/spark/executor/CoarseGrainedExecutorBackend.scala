@@ -22,19 +22,20 @@ import java.nio.ByteBuffer
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
-import scala.collection.mutable
-import scala.util.{Failure, Success}
-import scala.util.control.NonFatal
-
-import org.apache.spark._
 import org.apache.spark.TaskState.TaskState
+import org.apache.spark._
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.deploy.worker.WorkerWatcher
 import org.apache.spark.internal.Logging
 import org.apache.spark.rpc._
-import org.apache.spark.scheduler.{ExecutorLossReason, TaskDescription}
+import org.apache.spark.scheduler.ExecutorLossReason
 import org.apache.spark.scheduler.cluster.CoarseGrainedClusterMessages._
+import org.apache.spark.serializer.SerializerInstance
 import org.apache.spark.util.{ThreadUtils, Utils}
+
+import scala.collection.mutable
+import scala.util.control.NonFatal
+import scala.util.{Failure, Success}
 
 private[spark] class CoarseGrainedExecutorBackend(
     override val rpcEnv: RpcEnv,
@@ -50,6 +51,10 @@ private[spark] class CoarseGrainedExecutorBackend(
   var executor: Executor = null
   @volatile var driver: Option[RpcEndpointRef] = None
 
+  // If this CoarseGrainedExecutorBackend is changed to support multiple threads, then this may need
+  // to be changed so that we don't share the serializer instance across threads
+  private[this] val ser: SerializerInstance = env.closureSerializer.newInstance()
+
   override def onStart() {
     logInfo("Connecting to driver: " + driverUrl)
     rpcEnv.asyncSetupEndpointRefByURI(driverUrl).flatMap { ref =>
@@ -62,7 +67,7 @@ private[spark] class CoarseGrainedExecutorBackend(
         // Always receive `true`. Just ignore it
       case Failure(e) =>
         logError(s"Cannot register with driver: $driverUrl", e)
-        exitExecutor()
+        exitExecutor(1, "Cannot register with driver")
     }(ThreadUtils.sameThread)
   }
 
@@ -79,7 +84,7 @@ private[spark] class CoarseGrainedExecutorBackend(
     case RegisteredExecutor =>
       logInfo("Successfully registered with driver")
       try {
-        executor = registerExecutor
+        executor = new Executor(executorId, hostname, env, userClassPath, isLocal = false)
       } catch {
         case NonFatal(e) =>
           exitExecutor(1, "Unable to create executor due to " + e.getMessage, e)
@@ -87,17 +92,16 @@ private[spark] class CoarseGrainedExecutorBackend(
 
     case RegisterExecutorFailed(message) =>
       logError("Slave registration failed: " + message)
-      exitExecutor()
+      exitExecutor(1, "Slave registration failed")
 
     case LaunchTask(taskDesc) =>
       if (executor == null) {
         logError("Received LaunchTask command but executor was null")
-        exitExecutor()
+        exitExecutor(1, "Received LaunchTask command but executor was null")
       } else {
-        val taskDesc = ser.deserialize[TaskDescription](data.value)
+        // val taskDesc = TaskDescription.decode(data)
         logInfo("Got assigned task " + taskDesc.taskId)
-        executor.launchTask(this, taskId = taskDesc.taskId, attemptNumber = taskDesc.attemptNumber,
-          taskDesc.name, taskDesc.serializedTask, taskDesc.taskData.decompress(env))
+        executor.launchTask(this, taskDesc)
       }
 
     case LaunchTasks(tasks, taskDataList) =>
@@ -107,9 +111,7 @@ private[spark] class CoarseGrainedExecutorBackend(
           logInfo("Got assigned task " + task.taskId)
           val ref = task.taskData.reference
           val taskData = if (ref >= 0) taskDataList(ref) else task.taskData
-          executor.launchTask(this, taskId = task.taskId,
-            attemptNumber = task.attemptNumber, task.name, task.serializedTask,
-            taskData.decompress(env))
+          executor.launchTask(this, task)
         }
       } else {
         exitExecutor(1, "Received LaunchTasks command but executor was null")
@@ -118,7 +120,7 @@ private[spark] class CoarseGrainedExecutorBackend(
     case KillTask(taskId, _, interruptThread, reason) =>
       if (executor == null) {
         logError("Received KillTask command but executor was null")
-        exitExecutor()
+        exitExecutor(1, "Received KillTask command but executor was null")
       } else {
         executor.killTask(taskId, interruptThread, reason)
       }
@@ -151,8 +153,8 @@ private[spark] class CoarseGrainedExecutorBackend(
     if (stopping.get()) {
       logInfo(s"Driver from $remoteAddress disconnected during shutdown")
     } else if (driver.exists(_.address == remoteAddress)) {
-      logError(s"Driver $remoteAddress disassociated! Shutting down.")
-      exitExecutor()
+      exitExecutor(1, s"Driver $remoteAddress disassociated! Shutting down.", null,
+        notifyDriver = false)
     } else {
       logWarning(s"An unknown ($remoteAddress) driver disconnected.")
     }

@@ -486,11 +486,6 @@ case class View(
   override def simpleString: String = {
     s"View (${desc.identifier}, ${output.mkString("[", ",", "]")})"
   }
-
-  assert(overwrite.enabled || !ifNotExists)
-  assert(partition.values.forall(_.nonEmpty) || !ifNotExists)
-
-  override lazy val resolved: Boolean = childrenResolved && table.resolved
 }
 
 /**

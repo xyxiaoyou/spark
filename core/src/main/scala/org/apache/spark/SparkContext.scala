@@ -46,9 +46,8 @@ import scala.collection.Map
 import scala.collection.generic.Growable
 import scala.collection.mutable.HashMap
 import scala.language.implicitConversions
-import scala.reflect.{classTag, ClassTag}
+import scala.reflect.{ClassTag, classTag}
 import scala.util.control.NonFatal
-
 import com.google.common.collect.MapMaker
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
@@ -56,7 +55,6 @@ import org.apache.hadoop.io.{ArrayWritable, BooleanWritable, BytesWritable, Doub
 import org.apache.hadoop.mapred.{FileInputFormat, InputFormat, JobConf, SequenceFileInputFormat, TextInputFormat}
 import org.apache.hadoop.mapreduce.{InputFormat => NewInputFormat, Job => NewHadoopJob}
 import org.apache.hadoop.mapreduce.lib.input.{FileInputFormat => NewFileInputFormat}
-
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.deploy.{LocalSparkCluster, SparkHadoopUtil}
@@ -2757,70 +2755,6 @@ object SparkContext extends Logging {
           localCluster.stop()
         }
         (backend, scheduler)
-
-      case "yarn" if deployMode == "cluster" =>
-        val scheduler = try {
-          val clazz = Utils.classForName("org.apache.spark.scheduler.cluster.YarnClusterScheduler")
-          val cons = clazz.getConstructor(classOf[SparkContext])
-          cons.newInstance(sc).asInstanceOf[TaskSchedulerImpl]
-        } catch {
-          // TODO: Enumerate the exact reasons why it can fail
-          // But irrespective of it, it means we cannot proceed !
-          case e: Exception =>
-            throw new SparkException("YARN mode not available ?", e)
-        }
-        val backend = try {
-          val clazz =
-            Utils.classForName("org.apache.spark.scheduler.cluster.YarnClusterSchedulerBackend")
-          val cons = clazz.getConstructor(classOf[TaskSchedulerImpl], classOf[SparkContext])
-          cons.newInstance(scheduler, sc).asInstanceOf[CoarseGrainedSchedulerBackend]
-        } catch {
-          case e: Exception =>
-            throw new SparkException("YARN mode not available ?", e)
-        }
-        scheduler.initialize(backend)
-        (backend, scheduler)
-
-      case "yarn" if deployMode == "client" =>
-        val scheduler = try {
-          val clazz = Utils.classForName("org.apache.spark.scheduler.cluster.YarnScheduler")
-          val cons = clazz.getConstructor(classOf[SparkContext])
-          cons.newInstance(sc).asInstanceOf[TaskSchedulerImpl]
-
-        } catch {
-          case e: Exception =>
-            throw new SparkException("YARN mode not available ?", e)
-        }
-
-        val backend = try {
-          val clazz =
-            Utils.classForName("org.apache.spark.scheduler.cluster.YarnClientSchedulerBackend")
-          val cons = clazz.getConstructor(classOf[TaskSchedulerImpl], classOf[SparkContext])
-          cons.newInstance(scheduler, sc).asInstanceOf[CoarseGrainedSchedulerBackend]
-        } catch {
-          case e: Exception =>
-            throw new SparkException("YARN mode not available ?", e)
-        }
-
-        scheduler.initialize(backend)
-        (backend, scheduler)
-
-      case MESOS_REGEX(mesosUrl) =>
-        MesosNativeLibrary.load()
-        val scheduler = new TaskSchedulerImpl(sc)
-        val coarseGrained = sc.conf.getBoolean("spark.mesos.coarse", defaultValue = true)
-        val backend = if (coarseGrained) {
-          new CoarseMesosSchedulerBackend(scheduler, sc, mesosUrl, sc.env.securityManager)
-        } else {
-          new MesosSchedulerBackend(scheduler, sc, mesosUrl)
-        }
-        scheduler.initialize(backend)
-        (backend, scheduler)
-
-      case zkUrl if zkUrl.startsWith("zk://") =>
-        logWarning("Master URL for a multi-master Mesos cluster managed by ZooKeeper should be " +
-          "in the form mesos://zk://host:port. Current Master URL will stop working in Spark 2.0.")
-        createTaskScheduler(sc, "mesos://" + zkUrl, deployMode)
 
       case masterUrl =>
         val cm = getClusterManager(masterUrl) match {

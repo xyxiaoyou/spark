@@ -21,17 +21,8 @@ package org.apache.spark.sql.execution
 import java.util.Locale
 import java.util.function.Supplier
 
-import scala.collection.mutable
-
-import org.apache.spark.broadcast
-import org.apache.spark.rdd.RDD
 import com.esotericsoftware.kryo.io.{Input, Output}
-import scala.util.control.Exception.catching
-
 import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
-import com.esotericsoftware.kryo.io.{Input, Output}
-
-import org.apache.spark.{broadcast, Partition, SparkContext, TaskContext}
 import org.apache.spark.rdd.{RDD, ZippedPartitionsBaseRDD, ZippedPartitionsPartition}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
@@ -45,6 +36,9 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.util.Utils
+import org.apache.spark.{Partition, SparkContext, TaskContext, broadcast}
+
+import scala.collection.mutable
 
 /**
  * An interface for those physical operators that support codegen.
@@ -752,7 +746,7 @@ case class WholeStageCodegenRDD(@transient sc: SparkContext, var source: CodeAnd
 
   def computeInternal(split: Partition,
       context: TaskContext): Iterator[InternalRow] = {
-    val clazz = CodeGenerator.compile(source)
+    val (clazz, _) = CodeGenerator.compile(source)
     val buffer = clazz.generate(references).asInstanceOf[BufferedRowIterator]
     if (rdds.length == 1) {
       buffer.init(split.index, Array(rdds.head.iterator(split, context)

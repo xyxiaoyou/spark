@@ -714,7 +714,7 @@ class TaskSetManagerSuite extends SparkFunSuite with LocalSparkContext with Logg
     }
     sched.setDAGScheduler(dagScheduler)
 
-    val singleTask = new ShuffleMapTask(0, 0, null, new Partition {
+    val singleTask = new ShuffleMapTask(0, 0, TaskData.EMPTY, null, new Partition {
         override def index: Int = 0
       }, Seq(TaskLocation("host1", "execA")), new Properties, null)
     val taskSet = new TaskSet(Array(singleTask), 0, 0, 0, null)
@@ -733,7 +733,7 @@ class TaskSetManagerSuite extends SparkFunSuite with LocalSparkContext with Logg
     assert(manager.isZombie === false)
 
     val directTaskResult = new DirectTaskResult[String](null, Seq()) {
-      override def value(resultSer: SerializerInstance): String = ""
+     // override def _value(resultSer: SerializerInstance): String = ""
     }
     // Complete one copy of the task, which should result in the task set manager
     // being marked as a zombie, because at least one copy of its only task has completed.

@@ -35,9 +35,9 @@ class SparkContextSchedulerCreationSuite
     createTaskScheduler(master, deployMode, new SparkConf())
 
   def createTaskScheduler(
-      master: String,
-      deployMode: String,
-      conf: SparkConf): TaskSchedulerImpl = {
+                           master: String,
+                           deployMode: String,
+                           conf: SparkConf): TaskSchedulerImpl = {
     // Create local SparkContext to setup a SparkEnv. We don't actually want to start() the
     // real schedulers, so we don't want to create a full SparkContext with the desired scheduler.
     sc = new SparkContext("local", "test", conf)
@@ -128,35 +128,5 @@ class SparkContextSchedulerCreationSuite
       case s: StandaloneSchedulerBackend => // OK
       case _ => fail()
     }
-  }
-
-  def testMesos(master: String, expectedClass: Class[_], coarse: Boolean) {
-    val conf = new SparkConf().set("spark.mesos.coarse", coarse.toString)
-    try {
-      val sched = createTaskScheduler(master, "client", conf)
-      assert(sched.backend.getClass === expectedClass)
-    } catch {
-      case e: UnsatisfiedLinkError =>
-        assert(e.getMessage.contains("mesos"))
-        logWarning("Mesos not available, could not test actual Mesos scheduler creation")
-      case e: Throwable => fail(e)
-    }
-  }
-
-  test("mesos fine-grained") {
-    testMesos("mesos://localhost:1234", classOf[MesosSchedulerBackend], coarse = false)
-  }
-
-  test("mesos coarse-grained") {
-    testMesos("mesos://localhost:1234", classOf[CoarseMesosSchedulerBackend], coarse = true)
-  }
-
-  test("mesos with zookeeper") {
-    testMesos("mesos://zk://localhost:1234,localhost:2345",
-      classOf[MesosSchedulerBackend], coarse = false)
-  }
-
-  test("mesos with zookeeper and Master URL starting with zk://") {
-    testMesos("zk://localhost:1234,localhost:2345", classOf[MesosSchedulerBackend], coarse = false)
   }
 }

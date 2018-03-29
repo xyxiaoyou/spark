@@ -39,17 +39,17 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import javax.annotation.concurrent.GuardedBy
 
-import scala.collection.mutable.{ArrayBuffer, HashMap, HashSet}
-import scala.concurrent.Future
-
-import org.apache.spark.{ExecutorAllocationClient, SparkEnv, SparkException, TaskState}
 import org.apache.spark.internal.Logging
 import org.apache.spark.rpc._
 import org.apache.spark.scheduler._
 import org.apache.spark.scheduler.cluster.CoarseGrainedClusterMessages._
 import org.apache.spark.scheduler.cluster.CoarseGrainedSchedulerBackend.ENDPOINT_NAME
-import org.apache.spark.util.{RpcUtils, ThreadUtils, Utils}
 import org.apache.spark.util.collection.OpenHashMap
+import org.apache.spark.util.{RpcUtils, ThreadUtils, Utils}
+import org.apache.spark.{ExecutorAllocationClient, SparkEnv, SparkException, TaskState}
+
+import scala.collection.mutable.{ArrayBuffer, HashMap, HashSet}
+import scala.concurrent.Future
 
 /**
  * A scheduler backend that waits for coarse-grained executors to connect.
@@ -308,28 +308,23 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
         !executorsPendingLossReason.contains(executorId)
     }
 
-    // Launch tasks returned by a set of resource offers
-    private def launchTasks(tasks: Seq[Seq[TaskDescription]]) {
-      for (task <- tasks.flatten) {
-        val serializedTask = TaskDescription.encode(task)
-        if (serializedTask.limit() >= maxRpcMessageSize) {
-          scheduler.taskIdToTaskSetManager.get(task.taskId).foreach { taskSetMgr =>
-            try {
-              var msg = "Serialized task %s:%d was %d bytes, which exceeds max allowed: " +
-                "spark.rpc.message.maxSize (%d bytes). Consider increasing " +
-                "spark.rpc.message.maxSize or using broadcast variables for large values."
-              msg = msg.format(task.taskId, task.index, serializedTask.limit(), maxRpcMessageSize)
-              taskSetMgr.abort(msg)
-            } catch {
-              case e: Exception => logError("Exception in error callback", e)
-            }
+    protected def checkTaskSizeLimit(task: TaskDescription, taskSize: Int): Boolean = {
+      if (taskSize > maxRpcMessageSize) {
+        scheduler.taskIdToTaskSetManager.get(task.taskId).foreach { taskSetMgr =>
+          try {
+            var msg = "Serialized task %s:%d was %d bytes, which exceeds max allowed: " +
+              "spark.rpc.message.maxSize (%d bytes). Consider increasing " +
+              "spark.rpc.message.maxSize or using broadcast variables for large values."
+            msg = msg.format(task.taskId, task.index, taskSize, maxRpcMessageSize)
+            taskSetMgr.abort(msg)
+          } catch {
+            case e: Exception => logError("Exception in error callback", e)
           }
         }
         false
       } else true
     }
 
-    // Launch tasks returned by a set of resource offers
     protected def launchTasks(tasks: Seq[Seq[TaskDescription]]): Unit = {
       val executorTaskGroupMap = new OpenHashMap[String, ExecutorTaskGroup](8)
       for (taskSet <- tasks) {
@@ -352,7 +347,8 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
                 // send this task separately
                 val executorData = executorTaskGroup.executorData
                 executorData.freeCores -= scheduler.CPUS_PER_TASK
-                logInfo(s"Launching task ${task.taskId} on executor id: " +
+                scheduler.sc.env.taskLogger.logInfo(
+                  s"Launching task ${task.taskId} on executor id: " +
                     s"${task.executorId} hostname: ${executorData.executorHost}.")
 
                 executorData.executorEndpoint.send(LaunchTask(task))
@@ -369,12 +365,11 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
 
         executorData.freeCores -= (scheduler.CPUS_PER_TASK * taskGroup.length)
         logDebug(s"Launching tasks ${taskGroup.map(_.taskId).mkString(",")} on " +
-            s"executor id: $executorId hostname: ${executorData.executorHost}.")
+          s"executor id: $executorId hostname: ${executorData.executorHost}.")
         executorData.executorEndpoint.send(LaunchTasks(taskGroup,
           executorTaskGroup.taskDataList))
       }
     }
-
     // Remove a disconnected slave from the cluster
     private def removeExecutor(executorId: String, reason: ExecutorLossReason): Unit = {
       logDebug(s"Asked to remove executor $executorId with reason $reason")

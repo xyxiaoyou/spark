@@ -52,7 +52,16 @@ private[spark] object CoarseGrainedClusterMessages {
     }
 
     override def read(kryo: Kryo, input: Input): Unit = {
-      task = new TaskDescription(0L, 0, null, null, 0, null)
+      task = new TaskDescription(_taskId = 0L,
+        _attemptNumber = 0,
+        _executorId = null,
+        _name = null,
+        _index = 0,
+        addedFiles = null,
+        addedJars = null,
+        properties = null,
+        _serializedTask = null,
+        taskData = TaskData.EMPTY)
       task.read(kryo, input)
     }
   }
@@ -84,7 +93,16 @@ private[spark] object CoarseGrainedClusterMessages {
       var numTasks = input.readVarInt(true)
       val tasks = new mutable.ArrayBuffer[TaskDescription](numTasks)
       while (numTasks > 0) {
-        val task = new TaskDescription(0, 0, null, null, 0, null)
+        val task = new TaskDescription(_taskId = 0L,
+          _attemptNumber = 0,
+          _executorId = null,
+          _name = null,
+          _index = 0,
+          addedFiles = null,
+          addedJars = null,
+          properties = null,
+          _serializedTask = null,
+          taskData = TaskData.EMPTY)
         task.read(kryo, input)
         tasks += task
         numTasks -= 1

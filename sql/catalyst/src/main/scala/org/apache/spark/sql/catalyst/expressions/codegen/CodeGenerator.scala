@@ -1519,4 +1519,3 @@ object CodeGenerator extends Logging {
         }
       })
   }
-}

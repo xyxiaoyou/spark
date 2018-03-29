@@ -24,16 +24,8 @@ import java.util.concurrent._
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.annotation.Nullable
 
-import scala.concurrent.{ExecutionContext, Future, Promise}
-import scala.concurrent.duration.Duration
-import scala.reflect.ClassTag
-import scala.util.{DynamicVariable, Failure, Success, Try}
-import scala.util.control.NonFatal
-
-import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
 import com.esotericsoftware.kryo.io.{Input, Output}
-
-import org.apache.spark.{SecurityManager, SparkConf, SparkEnv}
+import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
 import org.apache.spark.internal.Logging
 import org.apache.spark.network.TransportContext
 import org.apache.spark.network.client._
@@ -41,8 +33,15 @@ import org.apache.spark.network.crypto.{AuthClientBootstrap, AuthServerBootstrap
 import org.apache.spark.network.netty.SparkTransportConf
 import org.apache.spark.network.server._
 import org.apache.spark.rpc._
-import org.apache.spark.serializer.{JavaSerializer, JavaSerializerInstance, Serializer, SerializerInstance, SerializationStream}
-import org.apache.spark.util.{ByteBufferInputStream, ByteBufferOutputStream, RpcUtils, ThreadUtils, Utils}
+import org.apache.spark.serializer.{SerializationStream, Serializer, SerializerInstance}
+import org.apache.spark.util.{ByteBufferInputStream, ByteBufferOutputStream, ThreadUtils, Utils}
+import org.apache.spark.{SecurityManager, SparkConf, SparkEnv}
+
+import scala.concurrent.duration.Duration
+import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.reflect.ClassTag
+import scala.util.control.NonFatal
+import scala.util.{DynamicVariable, Failure, Success, Try}
 
 private[netty] class NettyRpcEnv(
     val conf: SparkConf,
@@ -270,7 +269,7 @@ private[netty] class NettyRpcEnv(
    * Returns [[SerializationStream]] that forwards the serialized bytes to `out`.
    */
   private[netty] def serializeStream(out: OutputStream): SerializationStream = {
-    javaSerializerInstance.serializeStream(out)
+    serializerInstance.get().serializeStream(out)
   }
 
   private[netty] def deserialize[T: ClassTag](client: TransportClient, bytes: ByteBuffer): T = {
@@ -475,7 +474,7 @@ private[rpc] class NettyRpcEnvFactory extends RpcEnvFactory with Logging {
     val sparkConf = config.conf
     val serializer = SparkEnv.getClosureSerializer(sparkConf)
     val nettyEnv =
-      new NettyRpcEnv(sparkConf, javaSerializerInstance, config.advertiseAddress,
+      new NettyRpcEnv(sparkConf, serializer, config.advertiseAddress,
         config.securityManager, config.numUsableCores)
     if (!config.clientMode) {
       val startNettyRpcEnv: Int => (NettyRpcEnv, Int) = { actualPort =>
@@ -521,6 +520,9 @@ private[netty] class NettyRpcEndpointRef(
   extends RpcEndpointRef(conf, nettyEnv) with Serializable with KryoSerializable with Logging {
 
   @transient @volatile var client: TransportClient = _
+  
+  private var _address = if (endpointAddress.rpcAddress != null) endpointAddress else null
+  private var _name = endpointAddress.name
 
   override def address: RpcAddress =
     if (endpointAddress.rpcAddress != null) endpointAddress.rpcAddress else null

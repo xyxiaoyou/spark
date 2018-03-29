@@ -17,21 +17,21 @@
 
 package org.apache.spark.scheduler
 
+import java.io.{DataInputStream, DataOutputStream}
 import java.nio.ByteBuffer
 import java.util.Properties
 
 import scala.collection.mutable
 import scala.collection.mutable.HashMap
-
 import com.esotericsoftware.kryo.Kryo
 import com.esotericsoftware.kryo.io.{Input, Output}
-
 import org.apache.spark._
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.executor.TaskMetrics
 import org.apache.spark.internal.config.APP_CALLER_CONTEXT
 import org.apache.spark.memory.{MemoryMode, TaskMemoryManager}
 import org.apache.spark.metrics.MetricsSystem
+import org.apache.spark.serializer.SerializerInstance
 import org.apache.spark.util._
 
 /**
@@ -48,8 +48,10 @@ import org.apache.spark.util._
  * @param _stageId id of the stage this task belongs to
  * @param _stageAttemptId attempt id of the stage this task belongs to
  * @param _partitionId index of the number in the RDD
- * @param _metrics a [[TaskMetrics]] that is created at driver side and sent to executor side.
  * @param localProperties copy of thread-local properties set by the user on the driver side.
+ * @param serializedTaskMetrics a `TaskMetrics` that is created and serialized on the driver side
+ *                              and sent to executor side.
+ *
  * The parameters below are optional:
  * @param _jobId id of the job this task belongs to
  * @param _appId id of the app this task belongs to
@@ -62,12 +64,11 @@ private[spark] abstract class Task[T](
     @transient private[spark] var taskData: TaskData = TaskData.EMPTY,
     // The default value is only used in tests.
     protected var taskBinary: Option[Broadcast[Array[Byte]]] = None,
-    private var _metrics: TaskMetrics = TaskMetrics.registered,
     @transient var localProperties: Properties = new Properties,
     // The default value is only used in tests.
     serializedTaskMetrics: Array[Byte] =
       SparkEnv.get.closureSerializer.newInstance().serialize(TaskMetrics.registered).array(),
-    private var _jobId: Int = -1,
+    private var _jobId: Option[Int] = None,
     private var _appId: Option[String] = None,
     private var _appAttemptId: Option[String] = None) extends Serializable {
 
@@ -80,9 +81,9 @@ private[spark] abstract class Task[T](
   @transient lazy val metrics: TaskMetrics =
     SparkEnv.get.closureSerializer.newInstance().deserialize(ByteBuffer.wrap(serializedTaskMetrics))
 
-  final def jobId: Int = _jobId
+  final var jobId: Int = if (_jobId.isDefined) _jobId.get else -1
 
-  final def metrics: TaskMetrics = _metrics
+  // final def metrics: TaskMetrics = _metrics
 
   final def appId: String = if (_appId.isDefined) _appId.get else null
 
@@ -129,7 +130,7 @@ private[spark] abstract class Task[T](
       SparkEnv.get.conf.get(APP_CALLER_CONTEXT),
       _appId,
       _appAttemptId,
-      _jobId,
+      Option(jobId),
       Option(stageId),
       Option(stageAttemptId),
       Option(taskAttemptId),
@@ -207,7 +208,6 @@ private[spark] abstract class Task[T](
    * If defined, this task has been killed and this option contains the reason.
    */
   def reasonIfKilled: Option[String] = Option(_reasonIfKilled)
-  def killed: Boolean = _killed
 
   /**
    * Returns the amount of time spent deserializing the RDD and function to be run in nanos.
@@ -240,7 +240,6 @@ private[spark] abstract class Task[T](
   def kill(interruptThread: Boolean, reason: String) {
     require(reason != null)
     _reasonIfKilled = reason
-    killed = true
     if (context != null) {
       context.markInterrupted(reason)
     }
@@ -253,7 +252,7 @@ private[spark] abstract class Task[T](
     output.writeInt(_stageId)
     output.writeVarInt(_stageAttemptId, true)
     output.writeVarInt(_partitionId, true)
-    output.writeVarInt(_jobId, true)
+    output.writeVarInt(jobId, true)
     output.writeLong(epoch)
     output.writeLong(_executorDeserializeTime)
     output.writeLong(_executorDeserializeCpuTime)
@@ -264,7 +263,6 @@ private[spark] abstract class Task[T](
       output.writeBoolean(false)
       kryo.writeClassAndObject(output, taskBinary.get)
     }
-    _metrics.write(kryo, output)
     output.writeString(appId)
     output.writeString(appAttemptId)
   }
@@ -273,7 +271,7 @@ private[spark] abstract class Task[T](
     _stageId = input.readInt()
     _stageAttemptId = input.readVarInt(true)
     _partitionId = input.readVarInt(true)
-    _jobId = input.readVarInt(true)
+    jobId = input.readVarInt(true)
     epoch = input.readLong()
     _executorDeserializeTime = input.readLong()
     _executorDeserializeCpuTime = input.readLong()
@@ -285,8 +283,6 @@ private[spark] abstract class Task[T](
       taskBinary = Some(kryo.readClassAndObject(input)
         .asInstanceOf[Broadcast[Array[Byte]]])
     }
-    _metrics = new TaskMetrics
-    _metrics.read(kryo, input)
     _appId = Option(input.readString())
     _appAttemptId = Option(input.readString())
   }

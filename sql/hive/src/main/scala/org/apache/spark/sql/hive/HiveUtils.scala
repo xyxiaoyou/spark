@@ -303,13 +303,13 @@ private[spark] object HiveUtils extends Logging {
       if (builtinHiveVersion != hiveMetastoreVersion) {
         throw new IllegalArgumentException(
           "Builtin jars can only be used when hive execution version == hive metastore version. " +
-            s"Execution: $hiveExecutionVersion != Metastore: $hiveMetastoreVersion. " +
+            s"Execution: $builtinHiveVersion != Metastore: $hiveMetastoreVersion. " +
             "Specify a vaild path to the correct hive jars using $HIVE_METASTORE_JARS " +
-            s"or change ${HIVE_METASTORE_VERSION.key} to $hiveExecutionVersion.")
+            s"or change ${HIVE_METASTORE_VERSION.key} to $builtinHiveVersion.")
       }
 
       // We recursively find all jars in the class loader chain,
-      // starting from the given classLoader.
+      // starting from the given classLoader.SnappyCoarseGrainedExecutorBackend.scala
       def allJars(classLoader: ClassLoader): Array[URL] = classLoader match {
         case null => Array.empty[URL]
         case childFirst: ChildFirstURLClassLoader =>

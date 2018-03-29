@@ -1016,7 +1016,8 @@ class DAGScheduler(
     // task gets a different copy of the RDD. This provides stronger isolation between tasks that
     // might modify state of objects referenced in their closures. This is necessary in Hadoop
     // where the JobConf/Configuration object is not thread-safe.
-    var taskBinary: Broadcast[Array[Byte]] = null
+    var taskBinary: Option[Broadcast[Array[Byte]]] = None
+    var taskData: TaskData = TaskData.EMPTY
     var partitions: Array[Partition] = null
     try {
       // For ShuffleMapTask, serialize and broadcast (rdd, shuffleDep).
@@ -1036,7 +1037,6 @@ class DAGScheduler(
 
         partitions = stage.rdd.partitions
       }
-      if (bytes == null) stage.taskBinaryBytes = taskBinaryBytes
 
       // use direct byte shipping for small size or if number of partitions is small
       val taskBytesLen = taskBinaryBytes.length
@@ -1079,18 +1079,18 @@ class DAGScheduler(
             val part = partitions(id)
             stage.pendingPartitions += id
             new ShuffleMapTask(stage.id, stage.latestInfo.attemptId, taskData,
-              taskBinary, part, locs, stage.latestInfo.taskMetrics, properties,
-              jobId, Option(sc.applicationId), Option(sc.applicationId))
+              taskBinary, part, locs, properties, serializedTaskMetrics, Option(jobId),
+              Option(sc.applicationId), sc.applicationAttemptId)
           }
 
         case stage: ResultStage =>
           partitionsToCompute.map { id =>
             val p: Int = stage.partitions(id)
-            val part = partitions(p)
+            val part = stage.rdd.partitions(p)
             val locs = taskIdToLocations(id)
             new ResultTask(stage.id, stage.latestInfo.attemptId, taskData,
-              taskBinary, part, locs, id, properties, stage.latestInfo.taskMetrics,
-              jobId, Option(sc.applicationId), Option(sc.applicationId))
+              taskBinary, part, locs, id, properties, serializedTaskMetrics, Option(jobId),
+              Option(sc.applicationId), sc.applicationAttemptId)
           }
       }
     } catch {
@@ -1104,7 +1104,7 @@ class DAGScheduler(
       logInfo(s"Submitting ${tasks.size} missing tasks from $stage (${stage.rdd}) (first 15 " +
         s"tasks are for partitions ${tasks.take(15).map(_.partitionId)})")
       taskScheduler.submitTasks(new TaskSet(
-        tasks.toArray, stage.id, stage.latestInfo.attemptNumber, jobId, properties))
+        tasks.toArray, stage.id, stage.latestInfo.attemptId, jobId, properties))
     } else {
       // Because we posted SparkListenerStageSubmitted earlier, we should mark
       // the stage as completed here in case there are no tasks to run
