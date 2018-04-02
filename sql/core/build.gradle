@@ -23,16 +23,14 @@ dependencies {
   compile project(subprojectBase + 'snappy-spark-sketch_' + scalaBinaryVersion)
   compile project(subprojectBase + 'snappy-spark-tags_' + scalaBinaryVersion)
 
+  compile('org.apache.orc:orc-core:1.4.1:nohive')
+  compile('org.apache.orc:orc-mapreduce:1.4.1:nohive')
   compile group: 'com.univocity', name: 'univocity-parsers', version: '2.2.3'
   compile group: 'org.apache.parquet', name: 'parquet-column', version: parquetVersion
   compile group: 'org.apache.parquet', name: 'parquet-hadoop', version: parquetVersion
   compile group: 'org.eclipse.jetty', name: 'jetty-servlet', version: jettyVersion
   compile group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: jacksonBindVersion
   compile group: 'org.apache.xbean', name: 'xbean-asm5-shaded', version: xbeanAsm5Version
-  compile('org.apache.orc:orc-core:1.4.1:nohive')
-  compile('org.apache.orc:orc-mapreduce:1.4.1:nohive')
-
-//  compile group: 'org.apache.orc', name: 'orc-mapreduce', version: '1.4.1'
 
   testCompile project(path: subprojectBase + 'snappy-spark-core_' + scalaBinaryVersion, configuration: 'testOutput')
   testCompile project(path: subprojectBase + 'snappy-spark-catalyst_' + scalaBinaryVersion, configuration: 'testOutput')

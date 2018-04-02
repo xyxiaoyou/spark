@@ -223,6 +223,16 @@ subprojects {
 //    compile group: 'org.apache.arrow', name: 'arrow-vector', version: '0.8.0'
     compile group: 'com.github.luben', name: 'zstd-jni', version: '1.3.2-2'
 
+    compile('org.apache.orc:orc-core:1.4.1:nohive') {
+      exclude(group: 'org.apache.hadoop', module: 'hadoop-common')
+      exclude(group: 'org.apache.hive', module: 'hive-storage-api')
+    }
+    compile('org.apache.orc:orc-mapreduce:1.4.1:nohive') {
+      exclude(group: 'org.apache.hadoop', module: 'hadoop-common')
+      exclude(group: 'org.apache.orc', module: 'orc-core')
+      exclude(group: 'org.apache.hive', module: 'hive-storage-api')
+    }
+
     testCompile "junit:junit:${junitVersion}"
     testCompile "org.scalatest:scalatest_${scalaBinaryVersion}:${scalatestVersion}"
     testCompile group: 'org.mockito', name: 'mockito-core', version: '1.10.19'
