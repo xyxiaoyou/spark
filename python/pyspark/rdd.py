@@ -125,15 +125,16 @@ def _load_from_socket(port, serializer):
     # On most of IPv6-ready systems, IPv6 will take precedence.
     for res in socket.getaddrinfo("localhost", port, socket.AF_UNSPEC, socket.SOCK_STREAM):
         af, socktype, proto, canonname, sa = res
-        sock = socket.socket(af, socktype, proto)
         try:
+            sock = socket.socket(af, socktype, proto)
             sock.settimeout(3)
             sock.connect(sa)
+            break
         except socket.error:
-            sock.close()
-            sock = None
-            continue
-        break
+            if sock:
+                sock.close()
+                sock = None
+                continue
     if not sock:
         raise Exception("could not open socket")
     # The RDD materialization time is unpredicable, if we set a timeout for socket reading
