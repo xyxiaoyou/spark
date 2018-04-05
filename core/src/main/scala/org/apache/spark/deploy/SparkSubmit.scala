@@ -325,7 +325,7 @@ object SparkSubmit extends CommandLineUtils {
     // Require all python files to be local, so we can add them to the PYTHONPATH
     // In YARN cluster mode, python files are distributed as regular files, which can be non-local.
     // In Mesos cluster mode, non-local python files are automatically downloaded by Mesos.
-    if (args.isPython && !isYarnCluster && !isMesosCluster) {
+    if (args.isPython && !isYarnCluster && !isMesosCluster && !isKubernetesCluster) {
       if (Utils.nonLocalPaths(args.primaryResource).nonEmpty) {
         printErrorAndExit(s"Only local python files are supported: ${args.primaryResource}")
       }
@@ -336,7 +336,7 @@ object SparkSubmit extends CommandLineUtils {
     }
 
     // Require all R files to be local
-    if (args.isR && !isYarnCluster && !isMesosCluster) {
+    if (args.isR && !isYarnCluster && !isMesosCluster && !isKubernetesCluster) {
       if (Utils.nonLocalPaths(args.primaryResource).nonEmpty) {
         printErrorAndExit(s"Only local R files are supported: ${args.primaryResource}")
       }
@@ -344,8 +344,8 @@ object SparkSubmit extends CommandLineUtils {
 
     // The following modes are not supported or applicable
     (clusterManager, deployMode) match {
-      case (KUBERNETES, CLIENT) =>
-        printErrorAndExit("Client mode is currently not supported for Kubernetes.")
+      case (KUBERNETES, CLIENT) if !inK8sCluster() =>
+        printErrorAndExit("Kubernetes currently only supports in-cluster client mode.")
       case (STANDALONE, CLUSTER) if args.isPython =>
         printErrorAndExit("Cluster deploy mode is currently not supported for python " +
           "applications on standalone clusters.")
@@ -682,10 +682,10 @@ object SparkSubmit extends CommandLineUtils {
     // explicitly sets `spark.submit.pyFiles` in his/her default properties file.
     sysProps.get("spark.submit.pyFiles").foreach { pyFiles =>
       val resolvedPyFiles = Utils.resolveURIs(pyFiles)
-      val formattedPyFiles = if (!isYarnCluster && !isMesosCluster) {
+      val formattedPyFiles = if (!isYarnCluster && !isMesosCluster && !isKubernetesCluster) {
         PythonRunner.formatPaths(resolvedPyFiles).mkString(",")
       } else {
-        // Ignoring formatting python path in yarn and mesos cluster mode, these two modes
+        // Ignoring formatting python path in yarn, mesos and kubernetes cluster mode, these modes
         // support dealing with remote python files, they could distribute and add python files
         // locally.
         resolvedPyFiles
@@ -855,6 +855,14 @@ object SparkSubmit extends CommandLineUtils {
 
   private[deploy] def isInternal(res: String): Boolean = {
     res == SparkLauncher.NO_RESOURCE
+  }
+
+  /**
+   * Return whether the submission environment is within a Kubernetes cluster
+   */
+  private[deploy] def inK8sCluster(): Boolean = {
+    !sys.env.get("KUBERNETES_SERVICE_HOST").isEmpty &&
+      !sys.env.get("KUBERNETES_SERVICE_PORT").isEmpty
   }
 
   /**
