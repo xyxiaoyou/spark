@@ -1111,7 +1111,15 @@ private class FullOuterIterator(
     var r = smjScanner.advanceNext()
     if (r) {
       if (firstLeftRow.isEmpty) {
-        firstLeftRow = Some(smjScanner.getLeftRow())
+        val left = smjScanner.getLeftRow().copy()
+        // Positions are like this
+        // left.numFields - 1: Num Rows in column batch
+        // left.numFields - 2: Bucket Id
+        // left.numFields - 3: Batch Id
+        // left.numFields - 4: Batch Ordinal
+        // See usage in ColumnUpdateExec
+        left.setInt(left.numFields - 4, Integer.MIN_VALUE)
+        firstLeftRow = Some(left)
       }
       // scalastyle:off
       // println(s"VB advanceNext: $joinedRow ${joinedRow.row1.getClass.getSimpleName}
