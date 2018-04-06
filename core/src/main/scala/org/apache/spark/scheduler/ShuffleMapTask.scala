@@ -42,7 +42,7 @@ import org.apache.spark.shuffle.ShuffleWriter
  * @param stageAttemptId attempt id of the stage this task belongs to
  * @param _taskData if serialized RDD and function are small, then it is compressed
  *                  and sent with its original decompressed size
- * @param _taskBinary broadcast version of the RDD and the ShuffleDependency. Once deserialized,
+ * @param taskBinary broadcast version of the RDD and the ShuffleDependency. Once deserialized,
  *                   the type should be (RDD[_], ShuffleDependency[_, _, _]).
  * @param partition partition of the RDD this task is associated with
  * @param locs preferred task execution locations for locality scheduling
@@ -56,8 +56,8 @@ import org.apache.spark.shuffle.ShuffleWriter
 private[spark] class ShuffleMapTask(
     stageId: Int,
     stageAttemptId: Int,
-    _taskData: TaskData,
-    _taskBinary: Option[Broadcast[Array[Byte]]],
+    _taskData: TaskData = TaskData.EMPTY,
+    taskBinary: Broadcast[Array[Byte]],
     private var partition: Partition,
     @transient private var locs: Seq[TaskLocation],
     localProperties: Properties,
@@ -66,7 +66,7 @@ private[spark] class ShuffleMapTask(
     appId: Option[String] = None,
     appAttemptId: Option[String] = None)
   extends Task[MapStatus](stageId, stageAttemptId, partition.index, _taskData,
-    _taskBinary, localProperties, serializedTaskMetrics, jobId, appId, appAttemptId)
+    taskBinary, localProperties, serializedTaskMetrics, jobId, appId, appAttemptId)
   with KryoSerializable with Logging {
 
   /** A constructor used only in test suites. This does not require passing in an RDD. */

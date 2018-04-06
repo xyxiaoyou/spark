@@ -38,7 +38,7 @@ import org.apache.spark.rdd.RDD
  * @param stageAttemptId attempt id of the stage this task belongs to
  * @param _taskData if serialized RDD and function are small, then it is compressed
  *                  and sent with its original decompressed size
- * @param _taskBinary broadcasted version of the serialized RDD and the function to apply on each
+ * @param taskBinary broadcasted version of the serialized RDD and the function to apply on each
  *                   partition of the given RDD. Once deserialized, the type should be
  *                   (RDD[T], (TaskContext, Iterator[T]) => U).
  * @param partition partition of the RDD this task is associated with
@@ -58,7 +58,7 @@ private[spark] class ResultTask[T, U](
     stageId: Int,
     stageAttemptId: Int,
     _taskData: TaskData,
-    _taskBinary: Option[Broadcast[Array[Byte]]],
+    taskBinary: Broadcast[Array[Byte]],
     private var partition: Partition,
     locs: Seq[TaskLocation],
     private var _outputId: Int,
@@ -68,7 +68,7 @@ private[spark] class ResultTask[T, U](
     appId: Option[String] = None,
     appAttemptId: Option[String] = None)
   extends Task[U](stageId, stageAttemptId, partition.index, _taskData,
-    _taskBinary, localProperties, serializedTaskMetrics, jobId, appId, appAttemptId)
+    taskBinary, localProperties, serializedTaskMetrics, jobId, appId, appAttemptId)
   with Serializable with KryoSerializable {
 
   final def outputId: Int = _outputId
@@ -86,7 +86,7 @@ private[spark] class ResultTask[T, U](
     } else 0L
     val ser = SparkEnv.get.closureSerializer.newInstance()
     val (rdd, func) = ser.deserialize[(RDD[T], (TaskContext, Iterator[T]) => U)](
-      ByteBuffer.wrap(getTaskBytes), Thread.currentThread.getContextClassLoader)
+      ByteBuffer.wrap(taskBinary.value), Thread.currentThread.getContextClassLoader)
     _executorDeserializeTime = math.max(System.nanoTime() - deserializeStartTime, 0L)
     _executorDeserializeCpuTime = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
       math.max(threadMXBean.getCurrentThreadCpuTime - deserializeStartCpuTime, 0L)

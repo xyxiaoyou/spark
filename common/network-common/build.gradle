@@ -28,13 +28,7 @@ dependencies {
   compile group: 'com.fasterxml.jackson.core', name: 'jackson-annotations', version: jacksonVersion
   compile group: 'org.apache.commons', name: 'commons-lang3', version: commonsLang3Version
   compile group: 'io.dropwizard.metrics', name: 'metrics-core', version: metricsVersion
-
   compile group: 'org.apache.arrow', name: 'arrow-vector', version: '0.8.0'
-
-//  compile group: 'io.dropwizard.metrics', name: 'metrics-jvm', version: metricsVersion
-//  compile group: 'io.dropwizard.metrics', name: 'metrics-json', version: metricsVersion
-//  compile group: 'io.dropwizard.metrics', name: 'metrics-graphite', version: metricsVersion
-//  compile group: 'io.dropwizard.metrics', name: 'metrics-ganglia', version: metricsVersion
   compile group: 'org.apache.commons', name: 'commons-crypto', version: '1.0.0'
 
   testCompile project(path: subprojectBase + 'snappy-spark-tags_' + scalaBinaryVersion, configuration: 'testOutput')

@@ -63,7 +63,7 @@ private[spark] abstract class Task[T](
     private var _partitionId: Int,
     @transient private[spark] var taskData: TaskData = TaskData.EMPTY,
     // The default value is only used in tests.
-    protected var taskBinary: Option[Broadcast[Array[Byte]]] = None,
+    protected var taskBinary: Broadcast[Array[Byte]],
     @transient var localProperties: Properties = new Properties,
     // The default value is only used in tests.
     serializedTaskMetrics: Array[Byte] =
@@ -93,7 +93,7 @@ private[spark] abstract class Task[T](
 
   protected final def getTaskBytes: Array[Byte] = {
     val bytes = taskDataBytes
-    if ((bytes ne null) && bytes.length > 0) bytes else taskBinary.get.value
+    if ((bytes ne null) && bytes.length > 0) bytes else taskBinary.value
   }
 
   /**
@@ -261,7 +261,7 @@ private[spark] abstract class Task[T](
       output.writeBoolean(true)
     } else {
       output.writeBoolean(false)
-      kryo.writeClassAndObject(output, taskBinary.get)
+      kryo.writeClassAndObject(output, taskBinary)
     }
     output.writeString(appId)
     output.writeString(appAttemptId)
@@ -278,10 +278,10 @@ private[spark] abstract class Task[T](
     // actual bytes are shipped in TaskDescription
     taskData = TaskData.EMPTY
     if (input.readBoolean()) {
-      taskBinary = None
+      taskBinary = null
     } else {
-      taskBinary = Some(kryo.readClassAndObject(input)
-        .asInstanceOf[Broadcast[Array[Byte]]])
+      taskBinary = kryo.readClassAndObject(input)
+        .asInstanceOf[Broadcast[Array[Byte]]]
     }
     _appId = Option(input.readString())
     _appAttemptId = Option(input.readString())

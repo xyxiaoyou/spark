@@ -71,7 +71,7 @@ object FakeTask {
       new ShuffleMapTask(stageId,
         stageAttemptId,
         TaskData.EMPTY,
-        None,
+        null,
         new Partition {override def index: Int = i},
         prefLocs(i),
         new Properties,
