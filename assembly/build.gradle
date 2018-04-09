@@ -28,22 +28,14 @@ dependencies {
   compile project(subprojectBase + 'snappy-spark-sql-kafka-0.10_' + scalaBinaryVersion)
   compile project(subprojectBase + 'snappy-spark-mllib_' + scalaBinaryVersion)
   compile project(subprojectBase + 'snappy-spark-graphx_' + scalaBinaryVersion)
-  if (rootProject.hasProperty('yarn')) {
-    compile project(subprojectBase + 'snappy-spark-yarn_' + scalaBinaryVersion)
-  }
-  if (rootProject.hasProperty('mesos')) {
-    compile project(subprojectBase + 'snappy-spark-mesos_' + scalaBinaryVersion)
-  }
+  compile project(subprojectBase + 'snappy-spark-yarn_' + scalaBinaryVersion)
+  compile project(subprojectBase + 'snappy-spark-mesos_' + scalaBinaryVersion)
+  compile project(subprojectBase + 'snappy-spark-hive_' + scalaBinaryVersion)
+  compile project(subprojectBase + 'snappy-spark-hive-thriftserver_' + scalaBinaryVersion)
   if (rootProject.hasProperty('kubernetes')) {
     compile project(subprojectBase + 'snappy-spark-kubernetes_' + scalaBinaryVersion)
   }
-  if (rootProject.hasProperty('hive')) {
-    compile project(subprojectBase + 'snappy-spark-hive_' + scalaBinaryVersion)
-  }
-  if (rootProject.hasProperty('hive-thriftserver')) {
-    compile project(subprojectBase + 'snappy-spark-hive-thriftserver_' + scalaBinaryVersion)
-  }
-  if (rootProject.hasProperty('spark-ganglia-lgpl')) {
+   if (rootProject.hasProperty('spark-ganglia-lgpl')) {
     compile project(subprojectBase + 'snappy-spark-ganglia-lgpl_' + scalaBinaryVersion)
   }
 }
