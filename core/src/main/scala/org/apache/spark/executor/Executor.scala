@@ -39,7 +39,7 @@ import org.apache.spark.util._
 import org.apache.spark.util.io.ChunkedByteBuffer
 
 import scala.collection.JavaConverters._
-import scala.collection.mutable.{ArrayBuffer, HashMap}
+import scala.collection.mutable.{ArrayBuffer, HashMap, Map}
 import scala.util.control.NonFatal
 
 /**
@@ -306,13 +306,14 @@ private[spark] class Executor(
       try {
         // Must be set before updateDependencies() is called, in case fetching dependencies
         // requires access to properties contained within (e.g. for access control).
-//        Executor.taskDeserializationProps.set(taskDescription.properties)
+        Executor.taskDeserializationProps.set(taskDescription.properties)
 
-//        updateDependencies(taskDescription.addedFiles, taskDescription.addedJars)
+        updateDependencies(taskDescription.addedFiles, taskDescription.addedJars)
         task = ser.deserialize[Task[Any]](
           taskDescription.serializedTask, Thread.currentThread.getContextClassLoader)
-//        task.localProperties = taskDescription.properties
+        task.localProperties = taskDescription.properties
         task.setTaskMemoryManager(taskMemoryManager)
+
         // If this task has been killed before we deserialized it, let's quit now. Otherwise,
         // continue executing the task.
         val killReason = reasonIfKilled
@@ -570,7 +571,6 @@ private[spark] class Executor(
               // SparkUncaughtExceptionHandler.uncaughtException(t)
             }
           }
-
       } finally {
         runningTasks.remove(taskId)
       }
@@ -748,8 +748,8 @@ private[spark] class Executor(
    * Download any missing dependencies if we receive a new set of files and JARs from the
    * SparkContext. Also adds any new JARs we fetched to the class loader.
    */
-  protected def updateDependencies(newFiles: HashMap[String, Long],
-      newJars: HashMap[String, Long]) {
+  protected def updateDependencies(newFiles: Map[String, Long],
+      newJars: Map[String, Long]) {
     lazy val hadoopConf = SparkHadoopUtil.get.newConfiguration(conf)
     synchronized {
       // Fetch missing dependencies

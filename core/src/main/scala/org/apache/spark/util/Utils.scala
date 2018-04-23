@@ -716,7 +716,7 @@ private[spark] object Utils extends Logging {
         }
         // wait for max double the configured time (connect + read time)
         val timeoutMs = conf.getTimeAsSeconds("spark.files.fetchTimeout", "60s") * 2000L
-        val source = SparkEnv.get.rpcEnv.openChannel(url, timeoutMs)
+        val source = SparkEnv.get.rpcEnv.openChannel(url)
         val is = Channels.newInputStream(source)
         downloadFile(url, is, targetFile, fileOverwrite)
       case "http" | "https" | "ftp" =>

@@ -17,22 +17,22 @@
 
 package org.apache.spark.rpc
 
-import scala.concurrent.Future
-import scala.reflect.ClassTag
-
-import org.apache.spark.{SparkConf, SparkException}
+import org.apache.spark.SparkConf
 import org.apache.spark.internal.Logging
 import org.apache.spark.util.RpcUtils
+
+import scala.concurrent.Future
+import scala.reflect.ClassTag
 
 /**
  * A reference for a remote [[RpcEndpoint]]. [[RpcEndpointRef]] is thread-safe.
  */
-private[spark] abstract class RpcEndpointRef(conf: SparkConf,
-  _env: RpcEnv) extends Serializable with Logging {
+private[spark] abstract class RpcEndpointRef(conf: SparkConf)
+  extends Serializable with Logging {
 
-  @transient protected var maxRetries = _env.maxRetries
-  @transient protected var retryWaitMs = _env.retryWaitMs
-  @transient protected var defaultAskTimeout = _env.defaultAskTimeout
+  private[this] val maxRetries = RpcUtils.numRetries(conf)
+  private[this] val retryWaitMs = RpcUtils.retryWaitMs(conf)
+  private[this] val defaultAskTimeout = RpcUtils.askRpcTimeout(conf)
 
   /**
    * return the address for the [[RpcEndpointRef]]
