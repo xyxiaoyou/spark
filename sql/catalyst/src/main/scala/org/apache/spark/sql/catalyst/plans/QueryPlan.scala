@@ -36,7 +36,7 @@
 package org.apache.spark.sql.catalyst.plans
 
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.trees.TreeNode
+import org.apache.spark.sql.catalyst.trees.{CurrentOrigin, TreeNode}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, StructType}
 
@@ -121,7 +121,9 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
     var changed = false
 
     @inline def transformExpression(e: Expression): Expression = {
-      val newE = f(e)
+      val newE = CurrentOrigin.withOrigin(e.origin) {
+        f(e)
+      }
       if (newE.fastEquals(e)) {
         e
       } else {
@@ -132,8 +134,7 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
 
     def recursiveTransform(arg: Any): AnyRef = arg match {
       case e: Expression => transformExpression(e)
-      case Some(e: Expression) => Some(transformExpression(e))
-      case Some(seq: Traversable[_]) => Some(seq.map(recursiveTransform))
+      case Some(value) => Some(recursiveTransform(value))
       case m: Map[_, _] => m
       case d: DataType => d // Avoid unpacking Structs
       case seq: Traversable[_] => seq.map(recursiveTransform)
@@ -167,7 +168,7 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
 
     productIterator.flatMap {
       case e: Expression => e :: Nil
-      case Some(seq: Traversable[_] ) => seqToExpressions(seq)
+      case s: Some[_] => seqToExpressions(s.toSeq)
       case seq: Traversable[_] => seqToExpressions(seq)
       case other => Nil
     }.toSeq

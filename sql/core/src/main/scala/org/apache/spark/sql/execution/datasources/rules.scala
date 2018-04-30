@@ -123,6 +123,14 @@ case class PreprocessTableCreation(sparkSession: SparkSession) extends Rule[Logi
           s"`${existingProvider.getSimpleName}`. It doesn't match the specified format " +
           s"`${specifiedProvider.getSimpleName}`.")
       }
+      tableDesc.storage.locationUri match {
+        case Some(location) if location.getPath != existingTable.location.getPath =>
+          throw new AnalysisException(
+            s"The location of the existing table ${tableIdentWithDB.quotedString} is " +
+              s"`${existingTable.location}`. It doesn't match the specified location " +
+              s"`${tableDesc.location}`.")
+        case _ =>
+      }
 
       if (query.schema.length != existingTable.schema.length) {
         throw new AnalysisException(
@@ -322,8 +330,7 @@ case class PreprocessTableCreation(sparkSession: SparkSession) extends Rule[Logi
  * table. It also does data type casting and field renaming, to make sure that the columns to be
  * inserted have the correct data type and fields have the correct names.
  */
-case class
-PreprocessTableInsertion(conf: SQLConf) extends Rule[LogicalPlan] {
+case class PreprocessTableInsertion(conf: SQLConf) extends Rule[LogicalPlan] {
   private def preprocess(
       insert: InsertIntoTable,
       tblName: String,
