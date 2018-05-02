@@ -1107,7 +1107,14 @@ private class FullOuterIterator(
   private[this] var lastLeftRow: Option[InternalRow] = None
   private[this] var firstLeftRow: Option[InternalRow] = None
 
-  override def advanceNext(): Boolean = if (SortMergeJoinExec.isCaseOfSortedInsertValue) {
+  override def advanceNext(): Boolean =
+    if (SortMergeJoinExec.isCaseOfSortedInsertValue) advanceNextSortedInsert() else {
+      val r = smjScanner.advanceNext()
+      if (r) numRows += 1
+      r
+    }
+
+  private def advanceNextSortedInsert(): Boolean = {
     var r = smjScanner.advanceNext()
     if (r) {
       if (firstLeftRow.isEmpty) {
@@ -1155,18 +1162,17 @@ private class FullOuterIterator(
       }
     }
     r
-  } else {
-    // Original
-    val r = smjScanner.advanceNext()
-    if (r) numRows += 1
-    r
   }
 
-  override def getRow: InternalRow = if (SortMergeJoinExec.isCaseOfSortedInsertValue) {
-    if (lastLeftRow.isDefined) {
-      resultProj(joinedRow.withLeft(lastLeftRow.get))
-    } else if (firstLeftRow.isDefined) {
-      resultProj(joinedRow.withLeft(firstLeftRow.get))
-    } else resultProj(joinedRow)
-  } else resultProj(joinedRow) // Original
+  override def getRow: InternalRow =
+    if (SortMergeJoinExec.isCaseOfSortedInsertValue) getRowSortedInsert else resultProj(joinedRow)
+
+  private def getRowSortedInsert: InternalRow = {
+    val resultRow = if (lastLeftRow.isDefined) {
+        joinedRow.withLeft(lastLeftRow.get)
+      } else if (firstLeftRow.isDefined) {
+        joinedRow.withLeft(firstLeftRow.get)
+      } else joinedRow
+    resultProj(resultRow)
+  }
 }
