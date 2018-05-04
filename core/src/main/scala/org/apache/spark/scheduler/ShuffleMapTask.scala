@@ -28,6 +28,7 @@ import com.esotericsoftware.kryo.io.{Input, Output}
 
 import org.apache.spark._
 import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.executor.TaskMetrics
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.shuffle.ShuffleWriter
@@ -42,10 +43,11 @@ import org.apache.spark.shuffle.ShuffleWriter
  * @param stageAttemptId attempt id of the stage this task belongs to
  * @param _taskData if serialized RDD and function are small, then it is compressed
  *                  and sent with its original decompressed size
- * @param taskBinary broadcast version of the RDD and the ShuffleDependency. Once deserialized,
+ * @param _taskBinary broadcast version of the RDD and the ShuffleDependency. Once deserialized,
  *                   the type should be (RDD[_], ShuffleDependency[_, _, _]).
  * @param partition partition of the RDD this task is associated with
  * @param locs preferred task execution locations for locality scheduling
+ * @param metrics a `TaskMetrics` that is created at driver side and sent to executor side.
  * @param localProperties copy of thread-local properties set by the user on the driver side.
  *
  * The parameters below are optional:
@@ -56,23 +58,23 @@ import org.apache.spark.shuffle.ShuffleWriter
 private[spark] class ShuffleMapTask(
     stageId: Int,
     stageAttemptId: Int,
-    _taskData: TaskData = TaskData.EMPTY,
-    taskBinary: Broadcast[Array[Byte]],
+    _taskData: TaskData,
+    _taskBinary: Option[Broadcast[Array[Byte]]],
     private var partition: Partition,
     @transient private var locs: Seq[TaskLocation],
+    metrics: TaskMetrics,
     localProperties: Properties,
-    serializedTaskMetrics: Array[Byte],
-    jobId: Option[Int] = None,
+    jobId: Int = -1,
     appId: Option[String] = None,
     appAttemptId: Option[String] = None)
   extends Task[MapStatus](stageId, stageAttemptId, partition.index, _taskData,
-    taskBinary, localProperties, serializedTaskMetrics, jobId, appId, appAttemptId)
+    _taskBinary, metrics, localProperties, jobId, appId, appAttemptId)
   with KryoSerializable with Logging {
 
   /** A constructor used only in test suites. This does not require passing in an RDD. */
   def this(partitionId: Int) {
     this(0, 0, TaskData.EMPTY, null, new Partition { override def index: Int = 0 },
-      null, new Properties, null)
+      null, null, new Properties)
   }
 
   @transient private val preferredLocs: Seq[TaskLocation] = {

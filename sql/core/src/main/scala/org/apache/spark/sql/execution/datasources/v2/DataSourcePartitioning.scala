@@ -53,6 +53,4 @@ class DataSourcePartitioning(
       case _ => false
     }
   }
-
-  override def compatibleWith(other: physical.Partitioning): Boolean = false
 }

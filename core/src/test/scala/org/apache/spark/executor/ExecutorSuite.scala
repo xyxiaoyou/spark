@@ -103,7 +103,7 @@ class ExecutorSuite extends SparkFunSuite with LocalSparkContext with MockitoSug
     try {
       executor = new Executor("id", "localhost", env, userClassPath = Nil, isLocal = true)
       // the task will be launched in a dedicated worker thread
-      executor.launchTask(mockExecutorBackend, taskDescription)
+      executor.launchTask(mockExecutorBackend, 0, 0, "", serializedTask, (null, 0L))
 
       if (!executorSuiteHelper.latch1.await(5, TimeUnit.SECONDS)) {
         fail("executor did not send first status update in time")
@@ -144,13 +144,12 @@ class ExecutorSuite extends SparkFunSuite with LocalSparkContext with MockitoSug
       stageId = 1,
       stageAttemptId = 0,
       _taskData = TaskData.EMPTY,
-      taskBinary = taskBinary,
+      _taskBinary = Some(taskBinary),
       partition = secondRDD.partitions(0),
       locs = Seq(),
       _outputId = 0,
       localProperties = new Properties(),
-      serializedTaskMetrics = serializedTaskMetrics)
-
+      metrics = null)
     val serTask = serializer.serialize(task)
     val taskDescription = createFakeTaskDescription(serTask)
 
@@ -188,12 +187,12 @@ class ExecutorSuite extends SparkFunSuite with LocalSparkContext with MockitoSug
       stageId = 1,
       stageAttemptId = 0,
       _taskData = TaskData.EMPTY,
-      taskBinary = taskBinary,
+      _taskBinary = Some(taskBinary),
       partition = secondRDD.partitions(0),
       locs = Seq(),
       _outputId = 0,
       localProperties = new Properties(),
-      serializedTaskMetrics = serializedTaskMetrics
+      metrics = null
     )
 
     val serTask = serializer.serialize(task)
@@ -268,7 +267,8 @@ class ExecutorSuite extends SparkFunSuite with LocalSparkContext with MockitoSug
       executor = new Executor("id", "localhost", SparkEnv.get, userClassPath = Nil, isLocal = true,
         uncaughtExceptionHandler = mockUncaughtExceptionHandler)
       // the task will be launched in a dedicated worker thread
-      executor.launchTask(mockBackend, taskDescription)
+      executor.launchTask(mockBackend, 0, 0, "", taskDescription.serializedTask, (null, 0L))
+
       eventually(timeout(5.seconds), interval(10.milliseconds)) {
         assert(executor.numRunningTasks === 0)
       }

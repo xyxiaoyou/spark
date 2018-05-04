@@ -19,17 +19,14 @@ package org.apache.spark.scheduler
 
 import java.util.Properties
 
-import org.apache.spark.{Partition, SparkEnv, TaskContext}
-import org.apache.spark.executor.TaskMetrics
+import org.apache.spark.{Partition, TaskContext}
 
 class FakeTask(
     stageId: Int,
     partitionId: Int,
-    prefLocs: Seq[TaskLocation] = Nil,
-    serializedTaskMetrics: Array[Byte] =
-      SparkEnv.get.closureSerializer.newInstance().serialize(TaskMetrics.registered).array())
+    prefLocs: Seq[TaskLocation] = Nil)
   extends Task[Int](stageId, 0, partitionId, TaskData.EMPTY,
-    null, new Properties, serializedTaskMetrics) {
+    null, null, new Properties) {
 
   override def runTask(context: TaskContext): Int = 0
   override def preferredLocations: Seq[TaskLocation] = prefLocs
@@ -74,8 +71,8 @@ object FakeTask {
         null,
         new Partition {override def index: Int = i},
         prefLocs(i),
-        new Properties,
-        SparkEnv.get.closureSerializer.newInstance().serialize(TaskMetrics.registered).array())
+        null,
+        new Properties)
     }
     new TaskSet(tasks, stageId, stageAttemptId, priority = 0, null)
   }
