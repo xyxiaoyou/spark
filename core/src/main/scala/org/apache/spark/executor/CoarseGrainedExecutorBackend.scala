@@ -84,34 +84,34 @@ private[spark] class CoarseGrainedExecutorBackend(
     case RegisteredExecutor =>
       logInfo("Successfully registered with driver")
       try {
-        executor = registerExecutor
+        executor = new Executor(executorId, hostname, env, userClassPath, isLocal = false)
       } catch {
         case NonFatal(e) =>
           exitExecutor(1, "Unable to create executor due to " + e.getMessage, e)
       }
 
     case RegisterExecutorFailed(message) =>
-      exitExecutor(1, "Slave registration failed: " + message)
+      logError("Slave registration failed: " + message)
+      exitExecutor(1, "Slave registration failed")
 
     case LaunchTask(taskDesc) =>
       if (executor == null) {
+        logError("Received LaunchTask command but executor was null")
         exitExecutor(1, "Received LaunchTask command but executor was null")
       } else {
-        env.taskLogger.logInfo("Got assigned task " + taskDesc.taskId)
-        executor.launchTask(this, taskId = taskDesc.taskId, attemptNumber = taskDesc.attemptNumber,
-          taskDesc.name, taskDesc.serializedTask, taskDesc.taskData.decompress(env))
+        // val taskDesc = TaskDescription.decode(data)
+        logInfo("Got assigned task " + taskDesc.taskId)
+        executor.launchTask(this, taskDesc)
       }
 
     case LaunchTasks(tasks, taskDataList) =>
       if (executor ne null) {
         logDebug("Got assigned tasks " + tasks.map(_.taskId).mkString(","))
         for (task <- tasks) {
-          env.taskLogger.logInfo("Got assigned task " + task.taskId)
+          logInfo("Got assigned task " + task.taskId)
           val ref = task.taskData.reference
           val taskData = if (ref >= 0) taskDataList(ref) else task.taskData
-          executor.launchTask(this, taskId = task.taskId,
-            attemptNumber = task.attemptNumber, task.name, task.serializedTask,
-            taskData.decompress(env))
+          executor.launchTask(this, task)
         }
       } else {
         exitExecutor(1, "Received LaunchTasks command but executor was null")
@@ -119,6 +119,7 @@ private[spark] class CoarseGrainedExecutorBackend(
 
     case KillTask(taskId, _, interruptThread, reason) =>
       if (executor == null) {
+        logError("Received KillTask command but executor was null")
         exitExecutor(1, "Received KillTask command but executor was null")
       } else {
         executor.killTask(taskId, interruptThread, reason)

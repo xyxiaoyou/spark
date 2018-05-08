@@ -1016,38 +1016,19 @@ class DAGScheduler(
     // task gets a different copy of the RDD. This provides stronger isolation between tasks that
     // might modify state of objects referenced in their closures. This is necessary in Hadoop
     // where the JobConf/Configuration object is not thread-safe.
-    var taskBinary: Option[Broadcast[Array[Byte]]] = None
-    var taskData: TaskData = TaskData.EMPTY
+    var taskBinary: Broadcast[Array[Byte]] = null
     try {
       // For ShuffleMapTask, serialize and broadcast (rdd, shuffleDep).
       // For ResultTask, serialize and broadcast (rdd, func).
-      val bytes = stage.taskBinaryBytes
-      val taskBinaryBytes: Array[Byte] = if (bytes != null) bytes else stage match {
+      val taskBinaryBytes: Array[Byte] = stage match {
         case stage: ShuffleMapStage =>
           JavaUtils.bufferToArray(
             closureSerializer.serialize((stage.rdd, stage.shuffleDep): AnyRef))
         case stage: ResultStage =>
           JavaUtils.bufferToArray(closureSerializer.serialize((stage.rdd, stage.func): AnyRef))
       }
-      if (bytes == null) stage.taskBinaryBytes = taskBinaryBytes
 
-      // use direct byte shipping for small size or if number of partitions is small
-      val taskBytesLen = taskBinaryBytes.length
-      if (taskBytesLen <= DAGScheduler.TASK_INLINE_LIMIT ||
-        partitionsToCompute.length == 1 ||
-        (taskBytesLen < math.min(maxRpcMessageSize, DAGScheduler.TASK_INLINE_UPPER_LIMIT) &&
-          partitionsToCompute.length <= DAGScheduler.TASK_INLINE_PARTITION_LIMIT)) {
-        if (stage.taskData.uncompressedLen > 0) {
-          taskData = stage.taskData
-        } else {
-          // compress inline task data (broadcast compresses as per conf)
-          taskData = new TaskData(env.createCompressionCodec.compress(
-            taskBinaryBytes, taskBytesLen), taskBytesLen)
-          stage.taskData = taskData
-        }
-      } else {
-        taskBinary = Some(sc.broadcast(taskBinaryBytes))
-      }
+      taskBinary = sc.broadcast(taskBinaryBytes)
     } catch {
       // In the case of a failure during serialization, abort the stage.
       case e: NotSerializableException =>
@@ -1063,14 +1044,17 @@ class DAGScheduler(
     }
 
     val tasks: Seq[Task[_]] = try {
+      val serializedTaskMetrics = closureSerializer.serialize(stage.latestInfo.taskMetrics).array()
       stage match {
         case stage: ShuffleMapStage =>
+          stage.pendingPartitions.clear()
           partitionsToCompute.map { id =>
             val locs = taskIdToLocations(id)
             val part = stage.rdd.partitions(id)
-            new ShuffleMapTask(stage.id, stage.latestInfo.attemptId, taskData,
-              taskBinary, part, locs, stage.latestInfo.taskMetrics, properties,
-              jobId, Option(sc.applicationId), Option(sc.applicationId))
+            stage.pendingPartitions += id
+            new ShuffleMapTask(stage.id, stage.latestInfo.attemptId, _taskData = TaskData.EMPTY,
+              taskBinary, part, locs, properties, serializedTaskMetrics, Option(jobId),
+              Option(sc.applicationId), sc.applicationAttemptId)
           }
 
         case stage: ResultStage =>
@@ -1078,9 +1062,9 @@ class DAGScheduler(
             val p: Int = stage.partitions(id)
             val part = stage.rdd.partitions(p)
             val locs = taskIdToLocations(id)
-            new ResultTask(stage.id, stage.latestInfo.attemptId, taskData,
-              taskBinary, part, locs, id, properties, stage.latestInfo.taskMetrics, jobId,
-              Option(sc.applicationId), sc.applicationAttemptId)
+            new ResultTask(stage.id, stage.latestInfo.attemptId, _taskData = TaskData.EMPTY,
+              taskBinary, part, locs, id, properties, serializedTaskMetrics,
+              Option(jobId), Option(sc.applicationId), sc.applicationAttemptId)
           }
       }
     } catch {

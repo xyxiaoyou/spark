@@ -69,12 +69,12 @@ class TaskContextSuite extends SparkFunSuite with BeforeAndAfter with LocalSpark
       stageId = 1,
       stageAttemptId = 0,
       _taskData = TaskData.EMPTY,
-      _taskBinary = Some(taskBinary),
+      taskBinary = taskBinary,
       partition = rdd.partitions(0),
       locs = Seq(),
       _outputId = 0,
-      metrics = null,
-      localProperties = new Properties())
+      localProperties = new Properties(),
+      serializedTaskMetrics = null)
     intercept[RuntimeException] {
       task.run(0, 0, null)
     }
@@ -98,12 +98,12 @@ class TaskContextSuite extends SparkFunSuite with BeforeAndAfter with LocalSpark
       stageId = 1,
       stageAttemptId = 0,
       _taskData = TaskData.EMPTY,
-      _taskBinary = Some(taskBinary),
+      taskBinary = taskBinary,
       partition = rdd.partitions(0),
       locs = Seq(),
       _outputId = 0,
-      metrics = null,
-      localProperties = new Properties())
+      localProperties = new Properties(),
+      serializedTaskMetrics = null)
     intercept[RuntimeException] {
       task.run(0, 0, null)
     }
