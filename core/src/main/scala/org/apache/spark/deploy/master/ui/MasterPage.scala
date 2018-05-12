@@ -72,9 +72,9 @@ private[ui] class MasterPage(parent: MasterWebUI) extends WebUIPage("") with Log
       val killFlag =
         Option(UIUtils.stripXSS(request.getParameter("terminate"))).getOrElse("false").toBoolean
       val idOrName = if (!killByName) {
-        Option(UIUtils.stripXSS(request.getParameter("id"))
+        Option(UIUtils.stripXSS(request.getParameter("id")))
       } else {
-        Option(UIUtils.stripXSS(request.getParameter("name"))
+        Option(UIUtils.stripXSS(request.getParameter("name")))
       }
       if (idOrName.isDefined && killFlag) {
         action(idOrName.get)
