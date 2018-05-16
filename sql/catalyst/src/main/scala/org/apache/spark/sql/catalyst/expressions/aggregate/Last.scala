@@ -39,8 +39,11 @@ case class Last(child: Expression, ignoreNullsExpr: Expression) extends Declarat
 
   private val ignoreNulls: Boolean = ignoreNullsExpr match {
     case Literal(b: Boolean, BooleanType) => b
-    case _ =>
-      throw new AnalysisException("The second argument of First should be a boolean literal.")
+    case x => {
+      println(s"ASSif1: Warn: Last function: found instance of class ${x.getClass.getName}")
+      false
+      // throw new AnalysisException("The second argument of Last should be a boolean literal.")
+    }
   }
 
   override def children: Seq[Expression] = child :: ignoreNullsExpr :: Nil
