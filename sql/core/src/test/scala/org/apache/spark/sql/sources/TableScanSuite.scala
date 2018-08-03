@@ -348,14 +348,10 @@ class TableScanSuite extends DataSourceTest with SharedSQLContext {
       (1 to 10).map(Row(_)).toSeq)
   }
 
-  // made as a seperate variable so that SnappyTableScanSuite
-  // can override this and change 'TABLE' to 'EXTERNAL TABLE'
-  val tableTypes = Seq("TEMPORARY VIEW", "TABLE")
-
   test("exceptions") {
     // Make sure we do throw correct exception when users use a relation provider that
     // only implements the RelationProvider or the SchemaRelationProvider.
-    tableTypes.foreach { tableType =>
+    Seq("TEMPORARY VIEW", "TABLE").foreach { tableType =>
       val schemaNotAllowed = intercept[Exception] {
         sql(
           s"""
@@ -385,7 +381,7 @@ class TableScanSuite extends DataSourceTest with SharedSQLContext {
   }
 
   test("read the data source tables that do not extend SchemaRelationProvider") {
-    tableTypes.foreach { tableType =>
+    Seq("TEMPORARY VIEW", "TABLE").foreach { tableType =>
       val tableName = "relationProvierWithSchema"
       withTable (tableName) {
         sql(
@@ -405,7 +401,7 @@ class TableScanSuite extends DataSourceTest with SharedSQLContext {
   test("SPARK-5196 schema field with comment") {
     sql(
       """
-       |CREATE TEMPORARY VIEW student(name string comment 'SN', age int comment 'SA', grade int)
+       |CREATE TEMPORARY VIEW student(name string comment "SN", age int comment "SA", grade int)
        |USING org.apache.spark.sql.sources.AllDataTypesScanSource
        |OPTIONS (
        |  from '1',
