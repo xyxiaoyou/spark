@@ -16,11 +16,8 @@
  */
 package org.apache.spark.unsafe;
 
-import java.io.File;
-import java.io.IOException;
-import java.net.URL;
-import java.net.URLDecoder;
-import java.security.CodeSource;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Locale;
 
 import org.apache.log4j.Logger;
@@ -75,27 +72,14 @@ public final class Native {
     }
 
     boolean loaded = false;
-    CodeSource cs = Native.class.getProtectionDomain().getCodeSource();
-    URL jarURL = cs != null ? cs.getLocation() : null;
-    String libDir;
     try {
-      if (jarURL != null) {
-        libDir = new File(URLDecoder.decode(jarURL.getFile(), "UTF-8"))
-            .getParentFile().getCanonicalPath();
-      } else {
-        // try in SNAPPY_HOME and SPARK_HOME
-        String productHome = System.getenv("SNAPPY_HOME");
-        if (productHome == null) {
-          productHome = System.getenv("SPARK_HOME");
-        }
-        if (productHome == null) {
-          throw new IllegalStateException("Unable to locate jar location");
-        }
-        libDir = new File(productHome, "jars").getCanonicalPath();
-      }
-      File libraryPath = new File(libDir, System.mapLibraryName(library));
-      if (libraryPath.exists()) {
-        System.load(libraryPath.getPath());
+      Class<?> utilsClass = Class.forName(
+          "com.gemstone.gemfire.internal.shared.ClientSharedUtils");
+      Path libDir = (Path)utilsClass.getMethod("getProductJarsDirectory",
+          Class.class).invoke(null, Native.class);
+      Path libraryPath = libDir.resolve(System.mapLibraryName(library));
+      if (Files.exists(libraryPath)) {
+        System.load(libraryPath.toString());
         logger.info("library " + library + " loaded from " + libraryPath);
       } else {
         System.loadLibrary(library);
@@ -103,9 +87,9 @@ public final class Native {
       }
 
       loaded = true;
-    } catch (IOException ioe) {
+    } catch (Exception e) {
       if (logger.isInfoEnabled()) {
-        logger.info("library " + library + " could not be loaded due to " + ioe);
+        logger.info("library " + library + " could not be loaded due to " + e);
       }
     } catch (UnsatisfiedLinkError ule) {
       if (logger.isInfoEnabled()) {

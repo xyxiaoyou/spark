@@ -207,7 +207,7 @@ private[spark] abstract class Task[T](
       // them out.
       } ++ context.taskMetrics.externalAccums.filter(a => !taskFailed || a.countFailedValues)
     } else {
-      Seq.empty
+      Nil
     }
   }
 
