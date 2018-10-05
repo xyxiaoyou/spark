@@ -206,3 +206,46 @@
   vertical-align: middle !important;
   font-size: 17px;
 }
+
+td.details-control {
+  text-align: center;
+  color: #228B57;
+  cursor: pointer;
+}
+
+tr.shown td.details-control {
+  text-align: center;
+  color: #FF0000;
+}
+
+.fa {
+  display: inline-block;
+  font-size: 14px;
+  font-size: inherit;
+  text-rendering: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+}
+
+.fa-plus-square::before {
+ content: "+";
+}
+
+.fa-minus-square::before {
+ content: "-";
+}
+
+.schema-table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  width: fit-content;
+  max-width: 100%;
+  box-shadow: 0 0 1px 1px rgba(0, 0, 0, .1);
+}
+
+div.tableNameCell {
+  width: 100%;
+  padding-left: 10px;
+}

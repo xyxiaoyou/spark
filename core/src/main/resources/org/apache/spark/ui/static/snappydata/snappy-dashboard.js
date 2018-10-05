@@ -1,6 +1,7 @@
 
 var isGoogleChartLoaded = false;
 var isMemberCellExpanded = {};
+var isTableSchemaRowExpanded = {};
 
 function updateCoreDetails(coresInfo) {
   $("#totalCores").html(coresInfo.totalCores);
@@ -252,9 +253,21 @@ function getTableStatsGridConf() {
   var tableStatsGridConf = {
     data: tableStatsGridData,
     "columns": [
+      { // control button
+        "className": 'details-control',
+        "orderable": false,
+        "data": null,
+        "defaultContent": '',
+        "render": function () {
+              return '<b class="fa fa-plus-square" aria-hidden="true"></b>';
+        },
+        width:"15px"
+      },
       { // Name
         data: function(row, type) {
-                var nameHtml = '<div style="width:100%; padding-left:10px;">'
+                // Replace all dots(.) for id with hyphen(-)
+                var idString = row.tableName.replace(/\./g, '-');
+                var nameHtml = '<div id="' + idString + '" class="tableNameCell">'
                                + row.tableName
                              + '</div>';
                 return nameHtml;
@@ -310,7 +323,8 @@ function getTableStatsGridConf() {
                 return bcHtml;
               }
       }
-    ]
+    ],
+    "order": [[1, 'asc']]
   }
 
   return tableStatsGridConf;
@@ -523,6 +537,13 @@ function loadClusterInfo() {
         tableStatsGridCurrPage = 0;
       }
 
+      // Expand schema rows if already expanded before auto-update
+      for (var t in isTableSchemaRowExpanded) {
+        if(isTableSchemaRowExpanded[t]) {
+          $("#"+t).parent().parent().find("td.details-control").click();
+        }
+      }
+
       extTableStatsGridData = response[0].externalTablesInfo;
       extTableStatsGrid.clear().rows.add(extTableStatsGridData).draw();
       if (extTableStatsGrid.page.info().pages > extTableStatsGridCurrPage) {
@@ -559,6 +580,27 @@ var extTableStatsGridData = [];
 var extTableStatsGrid;
 var extTableStatsGridCurrPage = 0;
 
+function formSchemaRow(d) {
+  // `d` is the original data object for the row
+  var schemaData = d.schemaDetails;
+  var schemaTable = '<div style="width: 1000px;">'
+                  + '<table class="schema-table" cellpadding="5" cellspacing="0" border="0">';
+  var fieldNameRow = '<tr>' + '<th> Name </th>';
+  var fieldTypeRow = '<tr>' + '<th> Type </th>';
+  var fieldNullableRow = '<tr>' + '<th> IsNullable </th>';
+  for (var field of schemaData) {
+    fieldNameRow += '<td>' + field.name + '</td>';
+    fieldTypeRow += '<td>' + field.dataType + '</td>';
+    fieldNullableRow += '<td>' + field.isNullable + '</td>';
+  }
+  fieldNameRow += '</tr>';
+  fieldTypeRow += '</tr>';
+  fieldNullableRow += '</tr>';
+  schemaTable += fieldNameRow + fieldTypeRow + fieldNullableRow + '</table></div>';
+
+   return schemaTable;
+}
+
 $(document).ready(function() {
 
   loadGoogleCharts();
@@ -578,6 +620,34 @@ $(document).ready(function() {
   tableStatsGrid = $('#tableStatsGrid').DataTable( getTableStatsGridConf() );
   tableStatsGrid.on( 'page.dt', function () {
     tableStatsGridCurrPage = tableStatsGrid.page.info().page;
+  });
+  tableStatsGrid.on('click', 'td.details-control', function () {
+      var tr = $(this).closest('tr');
+      var tdi = tr.find("b.fa");
+      var row = tableStatsGrid.row(tr);
+      var tableSchemaToBeShownFor = tr.find("div.tableNameCell")[0].id;
+
+      if (row.child.isShown()) {
+          // This row is already open - close it
+          isTableSchemaRowExpanded[tableSchemaToBeShownFor] = false;
+          row.child.hide();
+          tr.removeClass('shown');
+          tdi.first().removeClass('fa-minus-square');
+          tdi.first().addClass('fa-plus-square');
+      }
+      else {
+          // Open this row
+          isTableSchemaRowExpanded[tableSchemaToBeShownFor] = true;
+          row.child(formSchemaRow(row.data())).show();
+          tr.addClass('shown');
+          tdi.first().removeClass('fa-plus-square');
+          tdi.first().addClass('fa-minus-square');
+      }
+  });
+  tableStatsGrid.on("user-select", function (e, dt, type, cell, originalEvent) {
+     if ($(cell.node()).hasClass("details-control")) {
+         e.preventDefault();
+     }
   });
 
   // External Tables Grid Data Table
