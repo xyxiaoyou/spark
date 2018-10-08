@@ -2,6 +2,7 @@
 var isGoogleChartLoaded = false;
 var isMemberCellExpanded = {};
 var isTableSchemaRowExpanded = {};
+var isExtTableSchemaRowExpanded = {};
 
 function updateCoreDetails(coresInfo) {
   $("#totalCores").html(coresInfo.totalCores);
@@ -335,9 +336,21 @@ function getExternalTableStatsGridConf() {
   var extTableStatsGridConf = {
     data: extTableStatsGridData,
     "columns": [
+      { // control button
+        "className": 'details-control',
+        "orderable": false,
+        "data": null,
+        "defaultContent": '',
+        "render": function () {
+              return '<b class="fa fa-plus-square" aria-hidden="true"></b>';
+        },
+        width:"15px"
+      },
       { // Name
         data: function(row, type) {
-                var nameHtml = '<div style="width:100%; padding-left:10px;">'
+                // Replace all dots(.) for id with hyphen(-)
+                var idString = row.tableName.replace(/\./g, '-');
+                var nameHtml = '<div id="' + idString + '" class="tableNameCell">'
                                + row.tableName
                              + '</div>';
                 return nameHtml;
@@ -359,7 +372,8 @@ function getExternalTableStatsGridConf() {
                 return sourceHtml;
               }
       }
-    ]
+    ],
+    "order": [[1, 'asc']]
   }
 
   return extTableStatsGridConf;
@@ -540,7 +554,11 @@ function loadClusterInfo() {
       // Expand schema rows if already expanded before auto-update
       for (var t in isTableSchemaRowExpanded) {
         if(isTableSchemaRowExpanded[t]) {
-          $("#"+t).parent().parent().find("td.details-control").click();
+          if($("#"+t).parent().parent().find("td.details-control").length > 0) {
+            $("#"+t).parent().parent().find("td.details-control").click();
+          } else {
+            isTableSchemaRowExpanded[t] = false;
+          }
         }
       }
 
@@ -550,6 +568,17 @@ function loadClusterInfo() {
         extTableStatsGrid.page(extTableStatsGridCurrPage).draw(false);
       } else {
         extTableStatsGridCurrPage = 0;
+      }
+
+      // Expand schema rows if already expanded before auto-update
+      for (var t in isExtTableSchemaRowExpanded) {
+        if(isExtTableSchemaRowExpanded[t]) {
+          if($("#"+t).parent().parent().find("td.details-control").length > 0) {
+            $("#"+t).parent().parent().find("td.details-control").click();
+          } else {
+            isExtTableSchemaRowExpanded[t] = false;
+          }
+        }
       }
 
       // Display External tables only if available
@@ -654,6 +683,34 @@ $(document).ready(function() {
   extTableStatsGrid = $('#extTableStatsGrid').DataTable( getExternalTableStatsGridConf() );
   extTableStatsGrid.on( 'page.dt', function () {
     extTableStatsGridCurrPage = extTableStatsGrid.page.info().page;
+  });
+  extTableStatsGrid.on('click', 'td.details-control', function () {
+      var tr = $(this).closest('tr');
+      var tdi = tr.find("b.fa");
+      var row = extTableStatsGrid.row(tr);
+      var tableSchemaToBeShownFor = tr.find("div.tableNameCell")[0].id;
+
+      if (row.child.isShown()) {
+          // This row is already open - close it
+          isExtTableSchemaRowExpanded[tableSchemaToBeShownFor] = false;
+          row.child.hide();
+          tr.removeClass('shown');
+          tdi.first().removeClass('fa-minus-square');
+          tdi.first().addClass('fa-plus-square');
+      }
+      else {
+          // Open this row
+          isExtTableSchemaRowExpanded[tableSchemaToBeShownFor] = true;
+          row.child(formSchemaRow(row.data())).show();
+          tr.addClass('shown');
+          tdi.first().removeClass('fa-plus-square');
+          tdi.first().addClass('fa-minus-square');
+      }
+  });
+  extTableStatsGrid.on("user-select", function (e, dt, type, cell, originalEvent) {
+     if ($(cell.node()).hasClass("details-control")) {
+         e.preventDefault();
+     }
   });
 
   var clusterStatsUpdateInterval = setInterval(function() {
