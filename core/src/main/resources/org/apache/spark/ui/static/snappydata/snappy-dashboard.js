@@ -260,7 +260,7 @@ function getTableStatsGridConf() {
         "data": null,
         "defaultContent": '',
         "render": function () {
-              return '<b class="fa fa-plus-square" aria-hidden="true"></b>';
+              return '<b class="scm scm-plus-control" aria-hidden="true"></b>';
         },
         width:"15px"
       },
@@ -342,7 +342,7 @@ function getExternalTableStatsGridConf() {
         "data": null,
         "defaultContent": '',
         "render": function () {
-              return '<b class="fa fa-plus-square" aria-hidden="true"></b>';
+              return '<b class="scm scm-plus-control" aria-hidden="true"></b>';
         },
         width:"15px"
       },
@@ -377,6 +377,109 @@ function getExternalTableStatsGridConf() {
   }
 
   return extTableStatsGridConf;
+}
+
+function createMemberStatsGrid() {
+  // Members Grid Data Table
+  membersStatsGrid = $('#memberStatsGrid').DataTable( getMemberStatsGridConf() );
+
+  membersStatsGrid.on( 'page.dt', function () {
+    membersStatsGridCurrPage = membersStatsGrid.page.info().page;
+  });
+}
+
+function createTableStatsGrid() {
+  // Tables Grid Data Table
+  tableStatsGrid = $('#tableStatsGrid').DataTable( getTableStatsGridConf() );
+  tableStatsGrid.on( 'page.dt', function () {
+    tableStatsGridCurrPage = tableStatsGrid.page.info().page;
+  });
+  tableStatsGrid.on('click', 'td.details-control', function () {
+    var tr = $(this).closest('tr');
+    var tdi = tr.find("b.scm");
+    var row = tableStatsGrid.row(tr);
+    var tableSchemaToBeShownFor = tr.find("div.tableNameCell")[0].id;
+
+    if (row.child.isShown()) {
+      // This row is already open - close it
+      isTableSchemaRowExpanded[tableSchemaToBeShownFor] = false;
+      row.child.hide();
+      tr.removeClass('shown');
+      tdi.first().removeClass('scm-minus-control');
+      tdi.first().addClass('scm-plus-control');
+    } else {
+      // Open this row
+      isTableSchemaRowExpanded[tableSchemaToBeShownFor] = true;
+      var cWidth = $('#tableStatsGrid').width() - 20;
+      row.child(formatSchemaRow(row.data(), cWidth)).show();
+      tr.addClass('shown');
+      tdi.first().removeClass('scm-plus-control');
+      tdi.first().addClass('scm-minus-control');
+    }
+  });
+  tableStatsGrid.on("user-select", function (e, dt, type, cell, originalEvent) {
+    if ($(cell.node()).hasClass("details-control")) {
+      e.preventDefault();
+    }
+  });
+}
+
+function createExtTableStatsGrid() {
+  // External Tables Grid Data Table
+  extTableStatsGrid = $('#extTableStatsGrid').DataTable( getExternalTableStatsGridConf() );
+  extTableStatsGrid.on( 'page.dt', function () {
+    extTableStatsGridCurrPage = extTableStatsGrid.page.info().page;
+  });
+  extTableStatsGrid.on('click', 'td.details-control', function () {
+    var tr = $(this).closest('tr');
+    var tdi = tr.find("b.scm");
+    var row = extTableStatsGrid.row(tr);
+    var tableSchemaToBeShownFor = tr.find("div.tableNameCell")[0].id;
+
+    if (row.child.isShown()) {
+      // This row is already open - close it
+      isExtTableSchemaRowExpanded[tableSchemaToBeShownFor] = false;
+      row.child.hide();
+      tr.removeClass('shown');
+      tdi.first().removeClass('scm-minus-control');
+      tdi.first().addClass('scm-plus-control');
+    }
+    else {
+      // Open this row
+      isExtTableSchemaRowExpanded[tableSchemaToBeShownFor] = true;
+      var cWidth = $('#extTableStatsGrid').width() - 20;
+      row.child(formatSchemaRow(row.data(), cWidth)).show();
+      tr.addClass('shown');
+      tdi.first().removeClass('scm-plus-control');
+      tdi.first().addClass('scm-minus-control');
+    }
+  });
+  extTableStatsGrid.on("user-select", function (e, dt, type, cell, originalEvent) {
+    if ($(cell.node()).hasClass("details-control")) {
+      e.preventDefault();
+    }
+  });
+}
+
+function formatSchemaRow(data, containerWidth) {
+  // `data` is the original data object for the row
+  var schemaData = data.schemaDetails;
+  var schemaTable = '<div style="width: ' + containerWidth + 'px;">'
+                  + '<table class="schema-table" cellpadding="5" cellspacing="0" border="0">';
+  var fieldNameRow = '<tr>' + '<th> Name </th>';
+  var fieldTypeRow = '<tr>' + '<th> Type </th>';
+  var fieldNullableRow = '<tr>' + '<th> IsNullable </th>';
+  for (var field of schemaData) {
+    fieldNameRow += '<td>' + field.name + '</td>';
+    fieldTypeRow += '<td>' + field.dataType + '</td>';
+    fieldNullableRow += '<td>' + (field.isNullable ? 'Yes' : 'No')+ '</td>';
+  }
+  fieldNameRow += '</tr>';
+  fieldTypeRow += '</tr>';
+  fieldNullableRow += '</tr>';
+  schemaTable += fieldNameRow + fieldTypeRow + fieldNullableRow + '</table></div>';
+
+   return schemaTable;
 }
 
 function updateUsageCharts(statsData){
@@ -609,27 +712,6 @@ var extTableStatsGridData = [];
 var extTableStatsGrid;
 var extTableStatsGridCurrPage = 0;
 
-function formSchemaRow(data, containerWidth) {
-  // `d` is the original data object for the row
-  var schemaData = data.schemaDetails;
-  var schemaTable = '<div style="width: ' + containerWidth + 'px;">'
-                  + '<table class="schema-table" cellpadding="5" cellspacing="0" border="0">';
-  var fieldNameRow = '<tr>' + '<th> Name </th>';
-  var fieldTypeRow = '<tr>' + '<th> Type </th>';
-  var fieldNullableRow = '<tr>' + '<th> IsNullable </th>';
-  for (var field of schemaData) {
-    fieldNameRow += '<td>' + field.name + '</td>';
-    fieldTypeRow += '<td>' + field.dataType + '</td>';
-    fieldNullableRow += '<td>' + (field.isNullable ? 'Yes' : 'No')+ '</td>';
-  }
-  fieldNameRow += '</tr>';
-  fieldTypeRow += '</tr>';
-  fieldNullableRow += '</tr>';
-  schemaTable += fieldNameRow + fieldTypeRow + fieldNullableRow + '</table></div>';
-
-   return schemaTable;
-}
-
 $(document).ready(function() {
 
   loadGoogleCharts();
@@ -638,82 +720,11 @@ $(document).ready(function() {
       cache : false
     });
 
-  // Members Grid Data Table
-  membersStatsGrid = $('#memberStatsGrid').DataTable( getMemberStatsGridConf() );
+  createMemberStatsGrid();
 
-  membersStatsGrid.on( 'page.dt', function () {
-    membersStatsGridCurrPage = membersStatsGrid.page.info().page;
-  });
+  createTableStatsGrid();
 
-  // Tables Grid Data Table
-  tableStatsGrid = $('#tableStatsGrid').DataTable( getTableStatsGridConf() );
-  tableStatsGrid.on( 'page.dt', function () {
-    tableStatsGridCurrPage = tableStatsGrid.page.info().page;
-  });
-  tableStatsGrid.on('click', 'td.details-control', function () {
-      var tr = $(this).closest('tr');
-      var tdi = tr.find("b.fa");
-      var row = tableStatsGrid.row(tr);
-      var tableSchemaToBeShownFor = tr.find("div.tableNameCell")[0].id;
-
-      if (row.child.isShown()) {
-          // This row is already open - close it
-          isTableSchemaRowExpanded[tableSchemaToBeShownFor] = false;
-          row.child.hide();
-          tr.removeClass('shown');
-          tdi.first().removeClass('fa-minus-square');
-          tdi.first().addClass('fa-plus-square');
-      }
-      else {
-          // Open this row
-          isTableSchemaRowExpanded[tableSchemaToBeShownFor] = true;
-          var cWidth = $('#tableStatsGrid').width() - 20;
-          row.child(formSchemaRow(row.data(), cWidth)).show();
-          tr.addClass('shown');
-          tdi.first().removeClass('fa-plus-square');
-          tdi.first().addClass('fa-minus-square');
-      }
-  });
-  tableStatsGrid.on("user-select", function (e, dt, type, cell, originalEvent) {
-     if ($(cell.node()).hasClass("details-control")) {
-         e.preventDefault();
-     }
-  });
-
-  // External Tables Grid Data Table
-  extTableStatsGrid = $('#extTableStatsGrid').DataTable( getExternalTableStatsGridConf() );
-  extTableStatsGrid.on( 'page.dt', function () {
-    extTableStatsGridCurrPage = extTableStatsGrid.page.info().page;
-  });
-  extTableStatsGrid.on('click', 'td.details-control', function () {
-      var tr = $(this).closest('tr');
-      var tdi = tr.find("b.fa");
-      var row = extTableStatsGrid.row(tr);
-      var tableSchemaToBeShownFor = tr.find("div.tableNameCell")[0].id;
-
-      if (row.child.isShown()) {
-          // This row is already open - close it
-          isExtTableSchemaRowExpanded[tableSchemaToBeShownFor] = false;
-          row.child.hide();
-          tr.removeClass('shown');
-          tdi.first().removeClass('fa-minus-square');
-          tdi.first().addClass('fa-plus-square');
-      }
-      else {
-          // Open this row
-          isExtTableSchemaRowExpanded[tableSchemaToBeShownFor] = true;
-          var cWidth = $('#extTableStatsGrid').width() - 20;
-          row.child(formSchemaRow(row.data(), cWidth)).show();
-          tr.addClass('shown');
-          tdi.first().removeClass('fa-plus-square');
-          tdi.first().addClass('fa-minus-square');
-      }
-  });
-  extTableStatsGrid.on("user-select", function (e, dt, type, cell, originalEvent) {
-     if ($(cell.node()).hasClass("details-control")) {
-         e.preventDefault();
-     }
-  });
+  createExtTableStatsGrid();
 
   var clusterStatsUpdateInterval = setInterval(function() {
     // todo: need to provision when to stop and start update feature
