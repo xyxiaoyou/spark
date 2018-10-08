@@ -13,7 +13,7 @@ function toggleCellDetails(detailsId) {
   $("#"+detailsId).toggle();
 
   var spanId = $("#"+detailsId+"-btn");
-  if(spanId.hasClass("caret-downward")) {
+  if (spanId.hasClass("caret-downward")) {
     spanId.addClass("caret-upward");
     spanId.removeClass("caret-downward");
     isMemberCellExpanded[detailsId] = true;
@@ -24,7 +24,7 @@ function toggleCellDetails(detailsId) {
   }
 }
 
-function generateProgressBarHtml(progressValue){
+function generateProgressBarHtml(progressValue) {
   var progressBarHtml =
           '<div style="width:100%;">'
            + '<div style="float: left; width: 75%;">'
@@ -39,12 +39,12 @@ function generateProgressBarHtml(progressValue){
   return progressBarHtml;
 }
 
-function getDetailsCellExpansionProps(key){
+function getDetailsCellExpansionProps(key) {
   var cellProps = {
         caretClass: 'caret-downward',
         displayStyle: 'display:none;'
       };
-  if(isMemberCellExpanded[key]) {
+  if (isMemberCellExpanded[key]) {
       cellProps.caretClass = 'caret-upward';
       cellProps.displayStyle = 'display:block;';
   }
@@ -76,14 +76,14 @@ function generateDescriptionCellHtml(row) {
 }
 
 // Content to be displayed in heap memory cell in Members Stats Grid
-function generateHeapCellHtml(row){
+function generateHeapCellHtml(row) {
   var cellProps = getDetailsCellExpansionProps(row.userDir + '-heap');
 
   var heapHtml = "NA";
   var heapStorageHtml = "NA";
   var heapExecutionHtml = "NA";
 
-  if(row.memberType.toUpperCase() !== "LOCATOR"){
+  if (row.memberType.toUpperCase() !== "LOCATOR") {
     var heapUsed = convertSizeToHumanReadable(row.heapMemoryUsed);
     var heapSize = convertSizeToHumanReadable(row.heapMemorySize);
     heapHtml = heapUsed[0] + " " + heapUsed[1]
@@ -126,14 +126,14 @@ function generateHeapCellHtml(row){
 }
 
 // Content to be displayed in off-heap memory cell in Members Stats Grid
-function generateOffHeapCellHtml(row){
+function generateOffHeapCellHtml(row) {
   var cellProps = getDetailsCellExpansionProps(row.userDir + '-offheap');
 
   var offHeapHtml = "NA";
   var offHeapStorageHtml = "NA";
   var offHeapExecutionHtml = "NA";
 
-  if(row.memberType.toUpperCase() !== "LOCATOR"){
+  if (row.memberType.toUpperCase() !== "LOCATOR") {
     var offHeapUsed = convertSizeToHumanReadable(row.offHeapMemoryUsed);
     var offHeapSize = convertSizeToHumanReadable(row.offHeapMemorySize);
     offHeapHtml = offHeapUsed[0] + " " + offHeapUsed[1]
@@ -443,8 +443,7 @@ function createExtTableStatsGrid() {
       tr.removeClass('shown');
       tdi.first().removeClass('scm-minus-control');
       tdi.first().addClass('scm-plus-control');
-    }
-    else {
+    } else {
       // Open this row
       isExtTableSchemaRowExpanded[tableSchemaToBeShownFor] = true;
       var cWidth = $('#extTableStatsGrid').width() - 20;
@@ -482,10 +481,10 @@ function formatSchemaRow(data, containerWidth) {
    return schemaTable;
 }
 
-function updateUsageCharts(statsData){
+function updateUsageCharts(statsData) {
 
   // Load charts library if not already loaded
-  if(!isGoogleChartLoaded) {
+  if (!isGoogleChartLoaded) {
     // Set error message
     $("#googleChartsErrorMsg").show();
     return;
@@ -522,7 +521,7 @@ function updateUsageCharts(statsData){
 
   var diskStoreDiskSpaceTrend = statsData.diskStoreDiskSpaceTrend;
 
-  for(var i=0; i<timeLine.length; i++){
+  for (var i=0; i<timeLine.length; i++) {
     var timeX = new Date(timeLine[i]);
 
     cpuChartData.addRow([timeX, cpuUsageTrend[i]]);
@@ -599,7 +598,7 @@ function updateUsageCharts(statsData){
 
 function loadGoogleCharts() {
 
-  if((typeof google === 'object' && typeof google.charts === 'object')) {
+  if ((typeof google === 'object' && typeof google.charts === 'object')) {
     $("#googleChartsErrorMsg").hide();
     google.charts.load('current', {'packages':['corechart']});
     google.charts.setOnLoadCallback(googleChartsLoaded);
@@ -616,7 +615,7 @@ function googleChartsLoaded() {
 
 function loadClusterInfo() {
 
-  if(!isGoogleChartLoaded) {
+  if (!isGoogleChartLoaded) {
     $.ajax({
       url: "https://www.gstatic.com/charts/loader.js",
       dataType: "script",
