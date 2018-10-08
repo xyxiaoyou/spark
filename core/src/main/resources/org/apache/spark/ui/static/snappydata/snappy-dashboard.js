@@ -609,10 +609,10 @@ var extTableStatsGridData = [];
 var extTableStatsGrid;
 var extTableStatsGridCurrPage = 0;
 
-function formSchemaRow(d) {
+function formSchemaRow(data, containerWidth) {
   // `d` is the original data object for the row
-  var schemaData = d.schemaDetails;
-  var schemaTable = '<div style="width: 1000px;">'
+  var schemaData = data.schemaDetails;
+  var schemaTable = '<div style="width: ' + containerWidth + 'px;">'
                   + '<table class="schema-table" cellpadding="5" cellspacing="0" border="0">';
   var fieldNameRow = '<tr>' + '<th> Name </th>';
   var fieldTypeRow = '<tr>' + '<th> Type </th>';
@@ -620,7 +620,7 @@ function formSchemaRow(d) {
   for (var field of schemaData) {
     fieldNameRow += '<td>' + field.name + '</td>';
     fieldTypeRow += '<td>' + field.dataType + '</td>';
-    fieldNullableRow += '<td>' + field.isNullable + '</td>';
+    fieldNullableRow += '<td>' + (field.isNullable ? 'Yes' : 'No')+ '</td>';
   }
   fieldNameRow += '</tr>';
   fieldTypeRow += '</tr>';
@@ -667,7 +667,8 @@ $(document).ready(function() {
       else {
           // Open this row
           isTableSchemaRowExpanded[tableSchemaToBeShownFor] = true;
-          row.child(formSchemaRow(row.data())).show();
+          var cWidth = $('#tableStatsGrid').width() - 20;
+          row.child(formSchemaRow(row.data(), cWidth)).show();
           tr.addClass('shown');
           tdi.first().removeClass('fa-plus-square');
           tdi.first().addClass('fa-minus-square');
@@ -701,7 +702,8 @@ $(document).ready(function() {
       else {
           // Open this row
           isExtTableSchemaRowExpanded[tableSchemaToBeShownFor] = true;
-          row.child(formSchemaRow(row.data())).show();
+          var cWidth = $('#extTableStatsGrid').width() - 20;
+          row.child(formSchemaRow(row.data(), cWidth)).show();
           tr.addClass('shown');
           tdi.first().removeClass('fa-plus-square');
           tdi.first().addClass('fa-minus-square');
