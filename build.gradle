@@ -92,7 +92,7 @@ allprojects {
     commonsMath3Version = '3.6.1'
     avroVersion = '1.7.7'
     jsr305Version = '3.0.2'
-    jlineVersion = '2.14.2'
+    jlineVersion = '2.14.6'
     xbeanAsm5Version = '4.5'
     scalatestVersion = '2.2.6'
     pegdownVersion = '1.6.0'
