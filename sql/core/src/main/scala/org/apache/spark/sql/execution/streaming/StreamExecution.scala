@@ -234,6 +234,7 @@ class StreamExecution(
    */
   private def runBatches(): Unit = {
     try {
+      logInfo("SKSK Running batches.")
       if (sparkSession.sessionState.conf.streamingMetricsEnabled) {
         sparkSession.sparkContext.env.metricsSystem.registerSource(streamMetrics)
       }
@@ -260,6 +261,7 @@ class StreamExecution(
           val continueToRun =
             if (isActive) {
               reportTimeTaken("triggerExecution") {
+                logInfo("SKSK Hello running batch in triggerzexecutor")
                 if (currentBatchId < 0) {
                   // We'll do this initialization only once
                   populateStartOffsets()
@@ -501,7 +503,7 @@ class StreamExecution(
           if committedOffsets.get(source).map(_ != available).getOrElse(true) =>
           val current = committedOffsets.get(source)
           val batch = source.getBatch(current, available)
-          logDebug(s"Retrieving data from $source: $current -> $available")
+          logInfo(s"Retrieving data from $source: $current -> $available")
           Some(source -> batch)
         case _ => None
       }
@@ -537,6 +539,7 @@ class StreamExecution(
     }
 
     reportTimeTaken("queryPlanning") {
+      logInfo("SKSK creating incrementalExecution ")
       lastExecution = new IncrementalExecution(
         sparkSession,
         triggerLogicalPlan,
@@ -544,6 +547,7 @@ class StreamExecution(
         checkpointFile("state"),
         currentBatchId,
         offsetSeqMetadata.batchWatermarkMs)
+      logInfo("SKSK calling the lazy val executedPlan ")
       lastExecution.executedPlan // Force the lazy generation of execution plan
     }
 
