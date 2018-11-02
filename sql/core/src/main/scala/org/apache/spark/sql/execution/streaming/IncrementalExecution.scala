@@ -39,7 +39,7 @@ class IncrementalExecution(
   extends QueryExecution(sparkSession, logicalPlan) with Logging {
 
   // TODO: make this always part of planning.
-  /* val stateStrategy =
+  val stateStrategy =
     sparkSession.sessionState.planner.StatefulAggregationStrategy +:
     sparkSession.sessionState.planner.StreamingRelationStrategy +:
     sparkSession.sessionState.experimentalMethods.extraStrategies
@@ -49,7 +49,7 @@ class IncrementalExecution(
     new SparkPlanner(
       sparkSession.sparkContext,
       sparkSession.sessionState.conf,
-      stateStrategy)*/
+      stateStrategy)
 
   /**
    * See [SPARK-18339]
@@ -59,7 +59,7 @@ class IncrementalExecution(
   override lazy val optimizedPlan: LogicalPlan = {
     sparkSession.sessionState.optimizer.execute(withCachedData) transformAllExpressions {
       case ts @ CurrentBatchTimestamp(timestamp, _) =>
-        logInfo(s"SKSK Current batch timestamp = $timestamp")
+        logInfo(s"Current batch timestamp = $timestamp")
         ts.toLiteral
     }
   }
