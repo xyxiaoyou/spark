@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 SnappyData, Inc. All rights reserved.
+ * Copyright (c) 2018 SnappyData, Inc. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you
  * may not use this file except in compliance with the License. You
@@ -24,13 +24,13 @@ dependencies {
   compile project(subprojectBase + 'snappy-spark-hive_' + scalaBinaryVersion)
   compile project(subprojectBase + 'snappy-spark-graphx_' + scalaBinaryVersion)
   compile project(subprojectBase + 'snappy-spark-streaming-flume_' + scalaBinaryVersion)
-  compile project(subprojectBase + 'snappy-spark-streaming-kafka-0.8_' + scalaBinaryVersion)
+  compile project(subprojectBase + 'snappy-spark-streaming-kafka-0.10_' + scalaBinaryVersion)
 
   compile group: 'org.apache.commons', name: 'commons-math3', version: commonsMath3Version
-  compile group: 'com.github.scopt', name: 'scopt_' + scalaBinaryVersion, version: '3.3.0'
+  compile group: 'com.github.scopt', name: 'scopt_' + scalaBinaryVersion, version: scoptVersion
   // compile group: 'com.twitter', name: 'parquet-hadoop-bundle', version: hiveParquetVersion
 
-  runtimeJar group: 'com.github.scopt', name: 'scopt_' + scalaBinaryVersion, version: '3.3.0'
+  runtimeJar group: 'com.github.scopt', name: 'scopt_' + scalaBinaryVersion, version: scoptVersion
 }
 
 jar.doLast {

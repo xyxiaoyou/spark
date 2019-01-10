@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 SnappyData, Inc. All rights reserved.
+ * Copyright (c) 2018 SnappyData, Inc. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you
  * may not use this file except in compliance with the License. You
@@ -15,21 +15,19 @@
  * LICENSE file.
  */
 
-plugins {
-  id 'com.commercehub.gradle.plugin.avro' version '0.8.0'
-}
-
 description = 'Spark Project External Flume Sink'
 
+apply plugin: 'com.commercehub.gradle.plugin.avro'
+
 dependencies {
-  compile(group: 'org.apache.flume', name: 'flume-ng-sdk', version: '1.6.0') {
+  compile(group: 'org.apache.flume', name: 'flume-ng-sdk', version: flumeVersion) {
     exclude(group: 'io.netty', module: 'netty')
     exclude(group: 'org.apache.flume', module: 'flume-ng-auth')
     exclude(group: 'com.google.guava', module: 'guava')
     exclude(group: 'org.apache.thrift', module: 'libthrift')
     exclude(group: 'javax.servlet', module: 'servlet-api')
   }
-  compile(group: 'org.apache.flume', name: 'flume-ng-core', version: '1.6.0') {
+  compile(group: 'org.apache.flume', name: 'flume-ng-core', version: flumeVersion) {
     exclude(group: 'io.netty', module: 'netty')
     exclude(group: 'com.google.guava', module: 'guava')
     exclude(group: 'org.apache.thrift', module: 'libthrift')

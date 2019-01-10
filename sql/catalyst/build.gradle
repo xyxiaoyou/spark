@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 SnappyData, Inc. All rights reserved.
+ * Copyright (c) 2018 SnappyData, Inc. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you
  * may not use this file except in compliance with the License. You
@@ -25,7 +25,6 @@ dependencies {
   compile project(subprojectBase + 'snappy-spark-tags_' + scalaBinaryVersion)
 
   compile group: 'org.scala-lang', name: 'scala-compiler', version: scalaVersion
-  // compile group: 'org.scala-lang.modules', name: 'scala-parser-combinators_' + scalaBinaryVersion, version: '1.0.4'
   compile group: 'org.codehaus.janino', name: 'janino', version: janinoVersion
   compile group: 'org.codehaus.janino', name: 'commons-compiler', version: janinoVersion
   compile group: 'org.antlr', name: 'antlr4-runtime', version: antlrVersion

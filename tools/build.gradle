@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 SnappyData, Inc. All rights reserved.
+ * Copyright (c) 2018 SnappyData, Inc. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you
  * may not use this file except in compliance with the License. You
@@ -19,7 +19,7 @@ description = 'Spark Project Tools'
 
 dependencies {
   compile group: 'org.scala-lang', name: 'scala-compiler', version: scalaVersion
-  compile group: 'org.clapper', name: 'classutil_' + scalaBinaryVersion, version: '1.0.12'
+  compile group: 'org.clapper', name: 'classutil_' + scalaBinaryVersion, version: classutilVersion
 }
 
 // TODO: anything special required for deploy, install and source plugins in maven?
