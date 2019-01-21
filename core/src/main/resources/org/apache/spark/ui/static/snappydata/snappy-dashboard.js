@@ -386,18 +386,34 @@ function getGlobalTempViewStatsGridConf() {
       },
       { // Type
         data: function(row, type) {
-                var providerHtml = '<div style="width:100%; text-align:center;">'
+                var typeHtml = '<div style="width:100%; text-align:center;">'
                                    + row.tableType
                                  + '</span>';
-                return providerHtml;
+                return typeHtml;
               }
       },
-      { // Columns Count
+      { // Table Columns
         data: function(row, type) {
-                var sourceHtml = '<div style="padding-right:10px; text-align:right;">'
-                                 + row.numColumns
-                               + '</span>';
-                return sourceHtml;
+                var tableFQNameWithHyphen = row.tableFQName.replace(/\./g, '-');
+                var cellProps = getDetailsCellExpansionProps(tableFQNameWithHyphen + '-tablefields');
+
+                var columnsCellHtml =
+                        '<div style="width: 90%; float: left; padding-right:10px;'
+                         + 'text-align:right;">' + row.columnsInfo.numColumns
+                      + '</div>'
+                      + '<div style="width: 5px; float: right; padding-right: 10px; '
+                         + 'cursor: pointer;" '
+                         + 'onclick="toggleCellDetails(\'' + tableFQNameWithHyphen + '-tablefields' + '\');">'
+                         + '<span class="' + cellProps.caretClass + '" '
+                         + 'id="' + tableFQNameWithHyphen + '-tablefields-btn"></span>'
+                      + '</div>'
+                      + '<div class="cellDetailsBox" id="'+ tableFQNameWithHyphen + '-tablefields" '
+                         + 'style="width: 90%; ' + cellProps.displayStyle + '">'
+                         + '<span><strong>Fields:</strong>'
+                         + '<br>' + row.columnsInfo.fieldsString.replace(/\n/g, '<br>')
+                         + '</span>'
+                      + '</div>';
+                return columnsCellHtml;
               }
       }
     ]
@@ -666,6 +682,11 @@ $(document).ready(function() {
 
   // Global Temporary Views Grid Data Table
   gblTempViewStatsGrid = $('#gblTempViewStatsGrid').DataTable( getGlobalTempViewStatsGridConf() );
+  // todo: need to remove setting width outside of datatable
+  $("table#gblTempViewStatsGrid").css({"width": "100%"});
+  $("table#gblTempViewStatsGrid thead tr th:nth-child(1)").css({"width": "50%"});
+  $("table#gblTempViewStatsGrid thead tr th:nth-child(2)").css({"width": "10%"});
+  $("table#gblTempViewStatsGrid thead tr th:nth-child(3)").css({"width": "40%"});
   gblTempViewStatsGrid.on( 'page.dt', function () {
     gblTempViewStatsGridCurrPage = gblTempViewStatsGrid.page.info().page;
   });
