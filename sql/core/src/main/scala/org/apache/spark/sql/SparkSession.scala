@@ -22,6 +22,7 @@ import java.io.Closeable
 import java.util.concurrent.atomic.AtomicReference
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe.TypeTag
 import scala.util.control.NonFatal
@@ -717,6 +718,8 @@ class SparkSession private(
 @InterfaceStability.Stable
 object SparkSession {
 
+  val activeSessions = new mutable.HashSet[SparkSession]()
+
   /**
    * Builder for [[SparkSession]].
    */
@@ -875,6 +878,8 @@ object SparkSession {
           sc
         }
         session = new SparkSession(sparkContext)
+        activeSessions.add(session)
+
         options.foreach { case (k, v) => session.sessionState.conf.setConfString(k, v) }
         defaultSession.set(session)
 
@@ -994,5 +999,4 @@ object SparkSession {
       case _: ClassNotFoundException | _: NoClassDefFoundError => false
     }
   }
-
 }

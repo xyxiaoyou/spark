@@ -288,22 +288,24 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
       trigger,
       triggerClock)
 
-    activeQueriesLock.synchronized {
+    StreamingQueryManager.activeQueriesGlobalLock.synchronized {
       // Make sure no other query with same name is active
       userSpecifiedName.foreach { name =>
-        if (activeQueries.values.exists(_.name == name)) {
+        SparkSession.activeSessions.foreach(s =>
+          if (s.streams.activeQueries.values.exists(_.name == name)) {
           throw new IllegalArgumentException(
             s"Cannot start query with name $name as a query with that name is already active")
-        }
+        })
       }
 
       // Make sure no other query with same id is active
-      if (activeQueries.values.exists(_.id == query.id)) {
-        throw new IllegalStateException(
+      SparkSession.activeSessions.foreach(s =>
+      if (s.streams.activeQueries.values.exists(_.id == query.id)) {
+        throw  new IllegalStateException(
           s"Cannot start query with id ${query.id} as another query with same id is " +
             s"already active. Perhaps you are attempting to restart a query from checkpoint " +
             s"that is already active.")
-      }
+      })
 
       activeQueries.put(query.id, query)
     }
@@ -335,4 +337,8 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
       awaitTerminationLock.notifyAll()
     }
   }
+}
+
+object StreamingQueryManager {
+  private val activeQueriesGlobalLock = new Object
 }
