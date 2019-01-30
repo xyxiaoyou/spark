@@ -24,13 +24,14 @@ import scala.collection.mutable
 
 import org.apache.hadoop.fs.Path
 
+import org.apache.spark.SparkContext
 import org.apache.spark.annotation.{Experimental, InterfaceStability}
 import org.apache.spark.sql.{AnalysisException, DataFrame, SparkSession}
 import org.apache.spark.sql.catalyst.analysis.UnsupportedOperationChecker
 import org.apache.spark.sql.execution.streaming._
 import org.apache.spark.sql.execution.streaming.state.StateStoreCoordinatorRef
-import org.apache.spark.sql.execution.streaming.ui.SnappyStreamingQueryListener
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.streaming.ui.{SnappyStreamingQueryListener, StreamingQueriesTab}
 import org.apache.spark.util.{Clock, SystemClock, Utils}
 
 /**
@@ -314,6 +315,11 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
 
       activeQueries.put(query.id, query)
       addListener(StreamingQueryManager.snappyStreamingQueryListener)
+      if(sparkSession.sparkContext.ui.isDefined && !sparkSession.sparkContext.ui.get.getTabs
+          .exists(t => t.name.equalsIgnoreCase("StreamingQueries"))){
+        sparkSession.sparkContext.ui.get
+            .attachTab(new StreamingQueriesTab(sparkSession.sparkContext))
+      }
     }
     try {
       // When starting a query, it will call `StreamingQueryListener.onQueryStarted` synchronously.
@@ -346,5 +352,5 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
 }
 
 object StreamingQueryManager {
-  private val snappyStreamingQueryListener = new SnappyStreamingQueryListener
+  private[streaming] lazy val snappyStreamingQueryListener = new SnappyStreamingQueryListener
 }

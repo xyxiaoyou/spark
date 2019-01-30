@@ -14,24 +14,25 @@
  * permissions and limitations under the License. See accompanying
  * LICENSE file.
  */
-package org.apache.spark.sql.execution.streaming.ui
+package org.apache.spark.sql.streaming.ui
 
-import org.apache.spark.sql.streaming.StreamingQueryListener
+import javax.servlet.http.HttpServletRequest
 
-/**
- *
- */
-class SnappyStreamingQueryListener extends StreamingQueryListener {
+import scala.xml.Node
 
-  override def onQueryStarted(event: StreamingQueryListener.QueryStartedEvent): Unit = {
+import org.apache.spark.sql.streaming.StreamingQueryManager
+import org.apache.spark.ui.{UIUtils, WebUIPage}
 
-  }
+class StreamingQueriesPage extends WebUIPage("") {
+  private val listener = StreamingQueryManager.snappyStreamingQueryListener
 
-  override def onQueryProgress(event: StreamingQueryListener.QueryProgressEvent): Unit = {
+  override def render(request: HttpServletRequest): Seq[Node] = {
 
-  }
 
-  override def onQueryTerminated(event: StreamingQueryListener.QueryTerminatedEvent): Unit = {
+    var contentToPrint = <div>
+      {listener.queries.map(q => q._2.name).mkString(",")}
+    </div>
 
+    UIUtils.basicSparkPage(contentToPrint, "Sample Streaming page", false)
   }
 }
