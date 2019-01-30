@@ -29,6 +29,7 @@ import org.apache.spark.sql.{AnalysisException, DataFrame, SparkSession}
 import org.apache.spark.sql.catalyst.analysis.UnsupportedOperationChecker
 import org.apache.spark.sql.execution.streaming._
 import org.apache.spark.sql.execution.streaming.state.StateStoreCoordinatorRef
+import org.apache.spark.sql.execution.streaming.ui.SnappyStreamingQueryListener
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.util.{Clock, SystemClock, Utils}
 
@@ -288,26 +289,31 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
       trigger,
       triggerClock)
 
-    StreamingQueryManager.activeQueriesGlobalLock.synchronized {
+    // Using global synchronization as uniqueness of query name and id needs to be checked
+    // across all active sessions
+    StreamingQueryManager.synchronized {
       // Make sure no other query with same name is active
       userSpecifiedName.foreach { name =>
         SparkSession.activeSessions.foreach(s =>
-          if (s.streams.activeQueries.values.exists(_.name == name)) {
-          throw new IllegalArgumentException(
-            s"Cannot start query with name $name as a query with that name is already active")
-        })
+          s.get.foreach(s =>
+            if (s.streams.activeQueries.values.exists(_.name == name)) {
+              throw new IllegalArgumentException(
+                s"Cannot start query with name $name as a query with that name is already active")
+            }))
       }
 
       // Make sure no other query with same id is active
       SparkSession.activeSessions.foreach(s =>
-      if (s.streams.activeQueries.values.exists(_.id == query.id)) {
-        throw  new IllegalStateException(
-          s"Cannot start query with id ${query.id} as another query with same id is " +
-            s"already active. Perhaps you are attempting to restart a query from checkpoint " +
-            s"that is already active.")
-      })
+        s.get.foreach(s =>
+          if (s.streams.activeQueries.values.exists(_.id == query.id)) {
+            throw new IllegalStateException(
+              s"Cannot start query with id ${query.id} as another query with same id is " +
+                  s"already active. Perhaps you are attempting to restart a query from" +
+                  s" checkpoint that is already active.")
+          }))
 
       activeQueries.put(query.id, query)
+      addListener(StreamingQueryManager.snappyStreamingQueryListener)
     }
     try {
       // When starting a query, it will call `StreamingQueryListener.onQueryStarted` synchronously.
@@ -340,5 +346,5 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
 }
 
 object StreamingQueryManager {
-  private val activeQueriesGlobalLock = new Object
+  private val snappyStreamingQueryListener = new SnappyStreamingQueryListener
 }
