@@ -19,7 +19,7 @@ package org.apache.spark.sql.catalyst.expressions
 
 import java.math.{BigDecimal => JavaBigDecimal}
 
-import org.apache.spark.SparkException
+import org.apache.spark.{SparkException, TaskContext}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.codegen._
@@ -248,7 +248,7 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
   private[this] def castToLong(from: DataType): Any => Any = from match {
     case StringType =>
       buildCast[UTF8String](_, s => try s.toLong catch {
-        case _: NumberFormatException => null
+        case _: NumberFormatException if !failFastTypeCastingEnabled => null
       })
     case BooleanType =>
       buildCast[Boolean](_, b => if (b) 1L else 0L)
@@ -260,11 +260,15 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
       b => x.numeric.asInstanceOf[Numeric[Any]].toLong(b)
   }
 
+  private def failFastTypeCastingEnabled = {
+    TaskContext.get().getLocalProperty("snappydata.failFastTypeCasting").toBoolean
+  }
+
   // IntConverter
   private[this] def castToInt(from: DataType): Any => Any = from match {
     case StringType =>
       buildCast[UTF8String](_, s => try s.toInt catch {
-        case _: NumberFormatException => null
+        case _: NumberFormatException if !failFastTypeCastingEnabled => null
       })
     case BooleanType =>
       buildCast[Boolean](_, b => if (b) 1 else 0)
@@ -280,7 +284,7 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
   private[this] def castToShort(from: DataType): Any => Any = from match {
     case StringType =>
       buildCast[UTF8String](_, s => try s.toShort catch {
-        case _: NumberFormatException => null
+        case _: NumberFormatException if !failFastTypeCastingEnabled => null
       })
     case BooleanType =>
       buildCast[Boolean](_, b => if (b) 1.toShort else 0.toShort)
@@ -296,7 +300,7 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
   private[this] def castToByte(from: DataType): Any => Any = from match {
     case StringType =>
       buildCast[UTF8String](_, s => try s.toByte catch {
-        case _: NumberFormatException => null
+        case _: NumberFormatException if !failFastTypeCastingEnabled => null
       })
     case BooleanType =>
       buildCast[Boolean](_, b => if (b) 1.toByte else 0.toByte)
@@ -323,7 +327,7 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
       buildCast[UTF8String](_, s => try {
         changePrecision(Decimal(new JavaBigDecimal(s.toString)), target)
       } catch {
-        case _: NumberFormatException => null
+        case _: NumberFormatException if !failFastTypeCastingEnabled => null
       })
     case BooleanType =>
       buildCast[Boolean](_, b => changePrecision(if (b) Decimal.ONE else Decimal.ZERO, target))
@@ -340,7 +344,7 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
       b => try {
         changePrecision(Decimal(x.fractional.asInstanceOf[Fractional[Any]].toDouble(b)), target)
       } catch {
-        case _: NumberFormatException => null
+        case _: NumberFormatException if !failFastTypeCastingEnabled => null
       }
   }
 
@@ -348,7 +352,7 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
   private[this] def castToDouble(from: DataType): Any => Any = from match {
     case StringType =>
       buildCast[UTF8String](_, s => try s.toString.toDouble catch {
-        case _: NumberFormatException => null
+        case _: NumberFormatException if !failFastTypeCastingEnabled => null
       })
     case BooleanType =>
       buildCast[Boolean](_, b => if (b) 1d else 0d)
@@ -364,7 +368,7 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
   private[this] def castToFloat(from: DataType): Any => Any = from match {
     case StringType =>
       buildCast[UTF8String](_, s => try s.toString.toFloat catch {
-        case _: NumberFormatException => null
+        case _: NumberFormatException if !failFastTypeCastingEnabled => null
       })
     case BooleanType =>
       buildCast[Boolean](_, b => if (b) 1f else 0f)
