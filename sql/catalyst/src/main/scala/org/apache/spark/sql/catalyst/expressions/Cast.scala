@@ -19,7 +19,7 @@ package org.apache.spark.sql.catalyst.expressions
 
 import java.math.{BigDecimal => JavaBigDecimal}
 
-import org.apache.spark.{SparkException, TaskContext}
+import org.apache.spark.{SparkContext, SparkException, TaskContext}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.codegen._
@@ -261,7 +261,15 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
   }
 
   private def failFastTypeCastingEnabled = {
-    TaskContext.get().getLocalProperty("snappydata.failFastTypeCasting").toBoolean
+    val failFastCasting : String = if (TaskContext.get() != null) {
+      TaskContext.get().getLocalProperty("snappydata.failFastTypeCasting")
+    } else {
+      SparkContext.activeContext.get().getLocalProperty("snappydata.failFastTypeCasting")
+    }
+    Option(failFastCasting) match {
+      case Some(value) => value.toBoolean
+      case None => false
+    }
   }
 
   // IntConverter
@@ -816,14 +824,21 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
 
   private[this] def castToDoubleCode(from: DataType): CastFunction = from match {
     case StringType =>
-      (c, evPrim, evNull) =>
-        s"""
+      (c, evPrim, evNull) => {
+        if (failFastTypeCastingEnabled) {
+          s"""
+            $evPrim = Double.valueOf($c.toString());
+        """
+        } else {
+          s"""
           try {
             $evPrim = Double.valueOf($c.toString());
           } catch (java.lang.NumberFormatException e) {
             $evNull = true;
           }
         """
+        }
+      }
     case BooleanType =>
       (c, evPrim, evNull) => s"$evPrim = $c ? 1.0d : 0.0d;"
     case DateType =>
