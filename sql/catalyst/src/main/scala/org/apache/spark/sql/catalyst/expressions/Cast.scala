@@ -715,13 +715,7 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
   private[this] def castToByteCode(from: DataType): CastFunction = from match {
     case StringType =>
       (c, evPrim, evNull) =>
-        s"""
-          try {
-            $evPrim = $c.toByte();
-          } catch (java.lang.NumberFormatException e) {
-            $evNull = true;
-          }
-        """
+        castStringToNumberCode(s"$evPrim = $c.toByte();", evNull)
     case BooleanType =>
       (c, evPrim, evNull) => s"$evPrim = $c ? (byte) 1 : (byte) 0;"
     case DateType =>
@@ -737,13 +731,7 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
   private[this] def castToShortCode(from: DataType): CastFunction = from match {
     case StringType =>
       (c, evPrim, evNull) =>
-        s"""
-          try {
-            $evPrim = $c.toShort();
-          } catch (java.lang.NumberFormatException e) {
-            $evNull = true;
-          }
-        """
+        castStringToNumberCode(s"$evPrim = $c.toShort();", evNull)
     case BooleanType =>
       (c, evPrim, evNull) => s"$evPrim = $c ? (short) 1 : (short) 0;"
     case DateType =>
@@ -759,13 +747,7 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
   private[this] def castToIntCode(from: DataType): CastFunction = from match {
     case StringType =>
       (c, evPrim, evNull) =>
-        s"""
-          try {
-            $evPrim = $c.toInt();
-          } catch (java.lang.NumberFormatException e) {
-            $evNull = true;
-          }
-        """
+        castStringToNumberCode(s"$evPrim = $c.toInt();", evNull)
     case BooleanType =>
       (c, evPrim, evNull) => s"$evPrim = $c ? 1 : 0;"
     case DateType =>
@@ -781,13 +763,7 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
   private[this] def castToLongCode(from: DataType): CastFunction = from match {
     case StringType =>
       (c, evPrim, evNull) =>
-        s"""
-          try {
-            $evPrim = $c.toLong();
-          } catch (java.lang.NumberFormatException e) {
-            $evNull = true;
-          }
-        """
+        castStringToNumberCode(s"  $evPrim = $c.toLong();", evNull)
     case BooleanType =>
       (c, evPrim, evNull) => s"$evPrim = $c ? 1L : 0L;"
     case DateType =>
@@ -803,13 +779,7 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
   private[this] def castToFloatCode(from: DataType): CastFunction = from match {
     case StringType =>
       (c, evPrim, evNull) =>
-        s"""
-          try {
-            $evPrim = Float.valueOf($c.toString());
-          } catch (java.lang.NumberFormatException e) {
-            $evNull = true;
-          }
-        """
+        castStringToNumberCode(s"$evPrim = Float.valueOf($c.toString());", evNull)
     case BooleanType =>
       (c, evPrim, evNull) => s"$evPrim = $c ? 1.0f : 0.0f;"
     case DateType =>
@@ -824,21 +794,8 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
 
   private[this] def castToDoubleCode(from: DataType): CastFunction = from match {
     case StringType =>
-      (c, evPrim, evNull) => {
-        if (failFastTypeCastingEnabled) {
-          s"""
-            $evPrim = Double.valueOf($c.toString());
-        """
-        } else {
-          s"""
-          try {
-            $evPrim = Double.valueOf($c.toString());
-          } catch (java.lang.NumberFormatException e) {
-            $evNull = true;
-          }
-        """
-        }
-      }
+      (c, evPrim, evNull) =>
+        castStringToNumberCode(s"$evPrim = Double.valueOf($c.toString());", evNull)
     case BooleanType =>
       (c, evPrim, evNull) => s"$evPrim = $c ? 1.0d : 0.0d;"
     case DateType =>
@@ -849,6 +806,20 @@ case class Cast(child: Expression, dataType: DataType) extends UnaryExpression w
       (c, evPrim, evNull) => s"$evPrim = $c.toDouble();"
     case x: NumericType =>
       (c, evPrim, evNull) => s"$evPrim = (double) $c;"
+  }
+
+  private[this] def castStringToNumberCode(code: String, evNull: String): String = {
+    if (failFastTypeCastingEnabled) {
+      code
+    } else {
+      s"""
+          try {
+            $code
+          } catch (java.lang.NumberFormatException e) {
+            $evNull = true;
+          }
+        """
+    }
   }
 
   private[this] def castArrayCode(
