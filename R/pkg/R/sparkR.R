@@ -413,8 +413,8 @@ sparkR.session <- function(
                 sparkConfigMap)
   } else {
     jsc <- get(".sparkRjsc", envir = .sparkREnv)
-    sparkSession <- callJStatic("org.apache.spark.sql.api.r.SQLUtils",
-                                "getOrCreateSparkSession",
+    sparkSession <- callJStatic("org.apache.spark.sql.api.r.SnappySQLUtils",
+                                "getOrCreateSnappySession",
                                 jsc,
                                 sparkConfigMap,
                                 enableHiveSupport)
