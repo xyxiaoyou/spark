@@ -63,6 +63,52 @@ function applyNotApplicableCheck(value){
   }
 }
 
+/* Generate a verbose human-readable string representing a duration
+ * such as "5 mins 35 secs"
+ */
+function formatDurationToString(ms) {
+  var days, hours, minutes, seconds;
+
+  seconds = Math.floor(ms / 1000);
+
+  minutes = Math.floor(seconds / 60);
+  seconds = seconds % 60;
+
+  hours = Math.floor(minutes / 60);
+  minutes = minutes % 60;
+
+  days = Math.floor(hours / 24);
+  hours = hours % 24;
+
+  var retStr = '';
+
+  if(days == 1) {
+    retStr += days + ' day, ';
+  } else if (days > 1) {
+    retStr += days + ' days, ';
+  }
+
+  if(hours == 1) {
+    retStr += hours + ' hour, ';
+  } else if (hours > 1) {
+    retStr += hours + ' hours, ';
+  }
+
+  if(minutes == 1) {
+    retStr += minutes + ' min, ';
+  } else if (minutes > 1) {
+    retStr += minutes + ' mins, ';
+  }
+
+  if(seconds == 1) {
+    retStr += seconds + ' sec';
+  } else if (seconds > 1) {
+    retStr += seconds + ' secs';
+  }
+
+  return retStr;
+};
+
 /*
  * Utility function to convert given value in Bytes to KB or MB or GB or TB
  *

@@ -3,8 +3,10 @@ var isGoogleChartLoaded = false;
 var isAutoUpdateTurnedON = true;
 var isMemberCellExpanded = {};
 
-function updateCoreDetails(coresInfo) {
-  $("#totalCores").html(coresInfo.totalCores);
+function updateClusterMetaData(clusterInfo) {
+  $("#clusterStartDateTime").html(clusterInfo.clusterStartDateTime);
+  $("#clusterUpTime").html(formatDurationToString(clusterInfo.clusterUpTime));
+  $("#totalCores").html(clusterInfo.coresInfo.totalCores);
 }
 
 function toggleCellDetails(detailsId) {
@@ -561,7 +563,7 @@ function loadClusterInfo() {
         $("#extTableStatsGridContainer").hide();
       }
 
-      updateCoreDetails(clusterInfo.coresInfo);
+      updateClusterMetaData(clusterInfo);
 
     },
     error: ajaxRequestErrorHandler
