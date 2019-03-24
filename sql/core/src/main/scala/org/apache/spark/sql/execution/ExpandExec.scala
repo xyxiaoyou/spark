@@ -24,7 +24,6 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.plans.physical.{Partitioning, UnknownPartitioning}
 import org.apache.spark.sql.execution.metric.SQLMetrics
-import org.apache.spark.sql.internal.SQLConf.MAX_CASES_BRANCHES
 
 /**
  * Apply all of the GroupExpressions to every input row, hence we will get
@@ -46,11 +45,6 @@ case class ExpandExec(
   // The GroupExpressions can output data with arbitrary partitioning, so set it
   // as UNKNOWN partitioning
   override def outputPartitioning: Partitioning = UnknownPartitioning(0)
-
-  override def supportCodegen: Boolean = {
-    logInfo(s"The length of projections are ${projections.length}")
-    projections.length < 1000
-  }
 
   override def references: AttributeSet =
     AttributeSet(projections.flatten.flatMap(_.references))
