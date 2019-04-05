@@ -54,11 +54,9 @@ case class SortAggregateExec(
     aggregateExpressions: Seq[AggregateExpression],
     aggregateAttributes: Seq[Attribute],
     initialInputBufferOffset: Int,
-    __resultExpressions: Seq[NamedExpression],
+    resultExpressions: Seq[NamedExpression],
     child: SparkPlan)
   extends UnaryExecNode {
-
-  @transient lazy val resultExpressions = __resultExpressions
 
   @transient lazy private[this] val aggregateBufferAttributes = {
     aggregateExpressions.flatMap(_.aggregateFunction.aggBufferAttributes)

@@ -59,7 +59,7 @@ object AggUtils {
       aggregateExpressions = completeAggregateExpressions,
       aggregateAttributes = completeAggregateAttributes,
       initialInputBufferOffset = 0,
-      __resultExpressions = resultExpressions,
+      resultExpressions = resultExpressions,
       child = child
     ) :: Nil
   }
@@ -90,7 +90,7 @@ object AggUtils {
         aggregateExpressions = aggregateExpressions,
         aggregateAttributes = aggregateAttributes,
         initialInputBufferOffset = initialInputBufferOffset,
-        __resultExpressions = resultExpressions,
+        resultExpressions = resultExpressions,
         child = child)
     }
   }
