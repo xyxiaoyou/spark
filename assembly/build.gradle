@@ -46,6 +46,7 @@ clean.doLast {
   cleanProduct()
 }
 
+
 task sparkProduct(type: Zip) {
   def examplesProject = project(subprojectBase + 'snappy-spark-examples_' + scalaBinaryVersion)
   String yarnShuffleProject = subprojectBase + 'snappy-spark-network-yarn_' + scalaBinaryVersion
@@ -87,13 +88,6 @@ task sparkProduct(type: Zip) {
         include 'examples/src/**'
       }
       into snappyProductDir
-    }
-    def sparkR = 'sparkProjectRootDir/R/lib/SparkR'
-    if (file(sparkR).exists()) {
-      copy {
-        from sparkR
-        into "${snappyProductDir}/R/lib"
-      }
     }
 
     // copy yarn shuffle shadow jar
