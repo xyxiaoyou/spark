@@ -1446,12 +1446,14 @@ class SQLQuerySuite extends QueryTest with SharedSQLContext {
     val e1 = intercept[AnalysisException] {
       sql("select interval")
     }
-    assert(e1.message.contains("at least one time unit should be given for interval literal"))
+    assert(e1.message.contains("at least one time unit should be given for interval literal") ||
+        e1.message.contains("cannot resolve '`interval`' given input columns"))
     // Currently we don't yet support nanosecond
     val e2 = intercept[AnalysisException] {
       sql("select interval 23 nanosecond")
     }
-    assert(e2.message.contains("No interval can be constructed"))
+    assert(e2.message.contains("No interval can be constructed") ||
+        e2.message.contains("Invalid input 'n'"))
   }
 
   test("SPARK-8945: add and subtract expressions for interval type") {

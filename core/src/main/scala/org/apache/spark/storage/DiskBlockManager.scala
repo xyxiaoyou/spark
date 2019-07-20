@@ -40,7 +40,7 @@ import java.io.{File, IOException}
 import org.apache.spark.SparkConf
 import org.apache.spark.executor.ExecutorExitCode
 import org.apache.spark.internal.Logging
-import org.apache.spark.util.{ShutdownHookManager, LocalDirectoryCleanupService, Utils}
+import org.apache.spark.util.{LocalDirectoryCleanupService, ShutdownHookManager, Utils}
 
 /**
  * Creates and maintains the logical mapping between logical blocks and physical on-disk
