@@ -65,6 +65,13 @@ private[netty] class NettyStreamManager(rpcEnv: NettyRpcEnv)
     }
   }
 
+  override def removeFile(file: File): Unit = {
+    val existingPath = files.putIfAbsent(file.getName, file)
+    if (existingPath == null || existingPath == file) {
+      files.remove(file.getName)
+    }
+  }
+
   override def addFile(file: File): String = {
     val existingPath = files.putIfAbsent(file.getName, file)
     require(existingPath == null || existingPath == file,
