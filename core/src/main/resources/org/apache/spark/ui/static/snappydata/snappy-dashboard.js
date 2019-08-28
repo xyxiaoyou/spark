@@ -2,6 +2,73 @@
 var isGoogleChartLoaded = false;
 var isAutoUpdateTurnedON = true;
 var isMemberCellExpanded = {};
+var isMemberRowExpanded = {};
+
+function setClusterStartDate() {
+  var months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN' , 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
+  var clusterStartTime = $("#hiddenData").data("clusterstarttime");
+  var dt = new Date(clusterStartTime);
+
+  var dd = dt.getDate();
+  if ( dd < 10 ) { dd = '0' + dd; }
+
+  var hh = dt.getHours();
+  if ( hh < 10 ) { hh = '0' + hh; }
+
+  var mm = dt.getMinutes();
+  if ( mm < 10 ) { mm = '0' + mm; }
+
+  var ss = dt.getSeconds();
+  if ( ss < 10 ) { ss = '0' + ss; }
+
+  var displayDateStr = months[dt.getMonth()] + ' ' + dd + ', ' + dt.getFullYear()
+                     + ' ' + hh + ':' + mm + ':' + ss;
+
+  $("#clusterStartDate").html(displayDateStr);
+  updateClusterUptime();
+}
+
+function updateClusterUptime() {
+  var clusterStartTime = $("#hiddenData").data("clusterstarttime");
+  var start_date = new Date(clusterStartTime);
+  var now_date = new Date();
+
+  var seconds = Math.floor((now_date - start_date) / 1000);
+  var minutes = Math.floor(seconds / 60);
+  var hours = Math.floor(minutes / 60);
+  var days = Math.floor(hours / 24);
+
+  hours = hours - (days * 24);
+  minutes = minutes - (days * 24 * 60) - (hours * 60);
+  seconds = seconds - (days * 24 * 60 * 60) - (hours * 60 * 60) - (minutes * 60);
+
+  var displayDateStr = "";
+  if (days > 0) {
+    if (days < 2) {
+      displayDateStr += days + ' Day ';
+    } else {
+      displayDateStr += days + ' Days ';
+    }
+  }
+  if (hours > 0) {
+    if (hours < 2) {
+      displayDateStr += hours + ' Hr ';
+    } else {
+      displayDateStr += hours + ' Hrs ';
+    }
+  }
+  if (minutes > 0) {
+    if (minutes > 0 && minutes < 2) {
+      displayDateStr += minutes + ' Min ';
+    } else {
+      displayDateStr += minutes + ' Mins ';
+    }
+  }
+  displayDateStr += seconds + ' Secs';
+
+  $("#clusterUptime").html(displayDateStr);
+}
 
 function updateCoreDetails(coresInfo) {
   $("#totalCores").html(coresInfo.totalCores);
@@ -9,10 +76,10 @@ function updateCoreDetails(coresInfo) {
 
 function toggleCellDetails(detailsId) {
 
-  $("#"+detailsId).toggle();
+  $("#" + detailsId).toggle();
 
-  var spanId = $("#"+detailsId+"-btn");
-  if(spanId.hasClass("caret-downward")) {
+  var spanId = $("#" + detailsId + "-btn");
+  if (spanId.hasClass("caret-downward")) {
     spanId.addClass("caret-upward");
     spanId.removeClass("caret-downward");
     isMemberCellExpanded[detailsId] = true;
@@ -20,6 +87,67 @@ function toggleCellDetails(detailsId) {
     spanId.addClass("caret-downward");
     spanId.removeClass("caret-upward");
     isMemberCellExpanded[detailsId] = false;
+  }
+}
+
+function toggleRowAddOnDetails(detailsId) {
+
+  var expRowBtn = $("#" + detailsId + "-expandrow-btn");
+
+  if (expRowBtn.hasClass('row-caret-downward')) {
+    expRowBtn.removeClass('row-caret-downward');
+    expRowBtn.addClass('row-caret-upward');
+    isMemberRowExpanded[detailsId] = true;
+
+    $("#" + detailsId).show();
+    $("#" + detailsId + '-heap').show();
+    $("#" + detailsId + '-offheap').show();
+    // show sparklines
+    $("#cpuUsageSLDiv-" + detailsId).show();
+    $("#memoryUsageSLDiv-" + detailsId).show();
+
+    // make sparklines visible
+    $.sparkline_display_visible();
+
+  } else {
+    expRowBtn.removeClass('row-caret-upward');
+    expRowBtn.addClass('row-caret-downward');
+    isMemberRowExpanded[detailsId] = false;
+
+    $("#" + detailsId).hide();
+    $("#" + detailsId + '-heap').hide();
+    $("#" + detailsId + '-offheap').hide();
+    // hide sparklines
+    $("#cpuUsageSLDiv-" + detailsId).hide();
+    $("#memoryUsageSLDiv-" + detailsId).hide();
+  }
+}
+
+function toggleAllRowsAddOnDetails() {
+  var expandAllRowsBtn = $('#expandallrows-btn');
+  var expandAction = true;
+  if (expandAllRowsBtn.hasClass('row-caret-downward')) {
+    expandAction = true;
+    expandAllRowsBtn.removeClass('row-caret-downward');
+    expandAllRowsBtn.addClass('row-caret-upward');
+  } else {
+    expandAction = false;
+    expandAllRowsBtn.removeClass('row-caret-upward');
+    expandAllRowsBtn.addClass('row-caret-downward');
+  }
+
+  for (memIndex in memberStatsGridData) {
+    if (expandAction) { // expand row
+      if ($('#' + memberStatsGridData[memIndex].diskStoreUUID
+           + '-expandrow-btn').hasClass('row-caret-downward')) {
+        toggleRowAddOnDetails(memberStatsGridData[memIndex].diskStoreUUID);
+      }
+    } else { // collapse row
+      if ($('#' + memberStatsGridData[memIndex].diskStoreUUID
+           + '-expandrow-btn').hasClass('row-caret-upward')) {
+        toggleRowAddOnDetails(memberStatsGridData[memIndex].diskStoreUUID);
+      }
+    }
   }
 }
 
@@ -61,20 +189,19 @@ function getDetailsCellExpansionProps(key){
 }
 
 function generateDescriptionCellHtml(row) {
-  var cellProps = getDetailsCellExpansionProps(row.userDir);
+  var cellDisplayState = 'display:none;';
+  if (isMemberRowExpanded[row.diskStoreUUID]) {
+    cellDisplayState = 'display:block;';
+  }
 
   var descText = row.host + " | " + row.userDir + " | " + row.processId;
   var descHtml =
-          '<div style="float: left; width: 80%; font-weight: bold;">'
+          '<div style="float: left; width: 100%; font-weight: bold;">'
           + '<a href="/dashboard/memberDetails/?memId=' + row.id + '">'
           + descText + '</a>'
         + '</div>'
-        + '<div style="width: 10px; float: right; padding-right: 10px;'
-          +' cursor: pointer;" onclick="toggleCellDetails(\'' + row.userDir + '\');">'
-          + '<span class="' + cellProps.caretClass + '" id="' + row.userDir + '-btn' + '"></span>'
-        + '</div>'
-        + '<div class="cellDetailsBox" id="' + row.userDir + '" '
-          + 'style="'+ cellProps.displayStyle + '">'
+        + '<div class="cellDetailsBox" id="' + row.diskStoreUUID + '" '
+          + 'style="'+ cellDisplayState + '">'
           + '<span>'
             + '<strong>Host:</strong>' + row.host
             + '<br/><strong>Directory:</strong>' + row.userDirFullPath
@@ -86,7 +213,10 @@ function generateDescriptionCellHtml(row) {
 
 // Content to be displayed in heap memory cell in Members Stats Grid
 function generateHeapCellHtml(row){
-  var cellProps = getDetailsCellExpansionProps(row.userDir + '-heap');
+  var cellDisplayState = 'display:none;';
+  if (isMemberRowExpanded[row.diskStoreUUID]) {
+    cellDisplayState = 'display:block;';
+  }
 
   var heapHtml = "NA";
   var heapStorageHtml = "NA";
@@ -112,17 +242,11 @@ function generateHeapCellHtml(row){
                     + " / " + jvmHeapSize[0] + " " + jvmHeapSize[1];
 
   var heapCellHtml =
-          '<div style="width: 80%; float: left; padding-right:10px;'
+          '<div style="width: 95%; float: left; padding-right:10px;'
            + 'text-align:right;">' + heapHtml
         + '</div>'
-        + '<div style="width: 5px; float: right; padding-right: 10px; '
-           + 'cursor: pointer;" '
-           + 'onclick="toggleCellDetails(\'' + row.userDir + '-heap' + '\');">'
-           + '<span class="' + cellProps.caretClass + '" '
-           + 'id="' + row.userDir + '-heap-btn"></span>'
-        + '</div>'
-        + '<div class="cellDetailsBox" id="'+ row.userDir + '-heap" '
-           + 'style="width: 90%; ' + cellProps.displayStyle + '">'
+        + '<div class="cellDetailsBox" id="'+ row.diskStoreUUID + '-heap" '
+           + 'style="width: 90%; ' + cellDisplayState + '">'
            + '<span><strong>JVM Heap:</strong>'
            + '<br>' + jvmHeapHtml
            + '<br><strong>Storage Memory:</strong>'
@@ -136,7 +260,10 @@ function generateHeapCellHtml(row){
 
 // Content to be displayed in off-heap memory cell in Members Stats Grid
 function generateOffHeapCellHtml(row){
-  var cellProps = getDetailsCellExpansionProps(row.userDir + '-offheap');
+  var cellDisplayState = 'display:none;';
+  if (isMemberRowExpanded[row.diskStoreUUID]) {
+    cellDisplayState = 'display:block;';
+  }
 
   var offHeapHtml = "NA";
   var offHeapStorageHtml = "NA";
@@ -158,17 +285,11 @@ function generateOffHeapCellHtml(row){
   }
 
   var offHeapCellHtml =
-          '<div style="width: 80%; float: left; padding-right:10px;'
+          '<div style="width: 95%; float: left; padding-right:10px;'
            + 'text-align:right;">' + offHeapHtml
         + '</div>'
-        + '<div style="width: 5px; float: right; padding-right: 10px; '
-           + 'cursor: pointer;" '
-           + 'onclick="toggleCellDetails(\'' + row.userDir + '-offheap' + '\');">'
-           + '<span class="' + cellProps.caretClass + '" '
-           + 'id="' + row.userDir + '-offheap-btn"></span>'
-        + '</div>'
-        + '<div class="cellDetailsBox" id="'+ row.userDir + '-offheap" '
-           + 'style="width: 90%; ' + cellProps.displayStyle + '">'
+        + '<div class="cellDetailsBox" id="'+ row.diskStoreUUID + '-offheap" '
+           + 'style="width: 90%; ' + cellDisplayState + '">'
            + '<span><strong>Storage Memory:</strong>'
            + '<br>' + offHeapStorageHtml
            + '<br><strong>Execution Memory:</strong>'
@@ -182,7 +303,22 @@ function getMemberStatsGridConf() {
   // Members Grid Data Table Configurations
   var memberStatsGridConf = {
     data: memberStatsGridData,
+    "lengthMenu": [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+    "iDisplayLength": 50,
     "columns": [
+      { // Expand/Collapse Button
+        data: function(row, type) {
+              var expandRowClass = 'row-caret-downward';
+              if (isMemberRowExpanded[row.diskStoreUUID]) {
+                expandRowClass = 'row-caret-upward';
+              }
+              return '<div style="padding: 0 5px; text-align: center; cursor: pointer;" ' +
+                     'onclick="toggleRowAddOnDetails(\'' + row.diskStoreUUID + '\');">' +
+                     '<span id="' + row.diskStoreUUID + '-expandrow-btn" ' +
+                     'class="' + expandRowClass + '"></span></div>';
+        },
+        "orderable": false
+      },
       { // Status
         data: function(row, type) {
                 var statusImgUri = "";
@@ -226,7 +362,17 @@ function getMemberStatsGridConf() {
       },
       { // CPU Usage
         data: function(row, type) {
-                return generateProgressBarHtml(row.cpuActive);
+                var displayStatus = "display:none;";
+                if ($('#'+ row.diskStoreUUID + '-expandrow-btn').hasClass('row-caret-upward') ) {
+                  displayStatus =  "display:block;";
+                }
+                var progBarHtml = generateProgressBarHtml(row.cpuActive);
+                var sparklineHtml = '<div id="cpuUsageSLDiv-' + row.diskStoreUUID + '" '
+                                  + 'class="cellDetailsBox" style="' + displayStatus + '">'
+                                  + '<div style="text-align: right; font-size: 12px; color: #0A8CAE;">'
+                                  + 'Values in %, Last 15 mins</div>'
+                                  + '<span id="cpuUsageSparklines-' + row.diskStoreUUID + '"></span></div>';
+                return progBarHtml + sparklineHtml;
               }
       },
       { // Memory Usage
@@ -237,7 +383,17 @@ function getMemberStatsGridConf() {
                 if(isNaN(memoryUsage)){
                   memoryUsage = 0;
                 }
-                return generateProgressBarHtml(memoryUsage);
+                var displayStatus = "display:none;";
+                if ($('#'+ row.diskStoreUUID + '-expandrow-btn').hasClass('row-caret-upward') ) {
+                  displayStatus =  "display:block;";
+                }
+                var progBarHtml = generateProgressBarHtml(memoryUsage);
+                var sparklineHtml = '<div id="memoryUsageSLDiv-' + row.diskStoreUUID + '" '
+                                  + 'class="cellDetailsBox" style="' + displayStatus + '">'
+                                  + '<div style="text-align: right; font-size: 12px; color: #0A8CAE;">'
+                                  + 'Values in GB, Last 15 mins</div>'
+                                  + '<span id="memoryUsageSparklines-' + row.diskStoreUUID + '"></span></div>';
+                return  progBarHtml + sparklineHtml;
               }
       },
       { // Heap Usage
@@ -252,7 +408,8 @@ function getMemberStatsGridConf() {
               },
         "orderable": false
       }
-    ]
+    ],
+    "order": [[3, 'desc']]
   }
 
   return memberStatsGridConf;
@@ -262,6 +419,8 @@ function getTableStatsGridConf() {
   // Tables Grid Data Table Configurations
   var tableStatsGridConf = {
     data: tableStatsGridData,
+    "lengthMenu": [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+    "iDisplayLength": 50,
     "columns": [
       { // Name
         data: function(row, type) {
@@ -290,7 +449,7 @@ function getTableStatsGridConf() {
       { // Row Count
         data: function(row, type) {
                 var rcHtml = '<div style="padding-right:10px; text-align:right;">'
-                             + row.rowCount
+                             + row.rowCount.toLocaleString(navigator.language)
                            + '</div>';
                 return rcHtml;
               }
@@ -298,38 +457,78 @@ function getTableStatsGridConf() {
       { // In Memory Size
         data: function(row, type) {
                 var tableInMemorySize = convertSizeToHumanReadable(row.sizeInMemory);
-                var msHtml = '<div style="padding-right:10px; text-align:right;">'
-                             + tableInMemorySize[0] + ' ' + tableInMemorySize[1]
-                           + '</div>';
-                return msHtml;
+                return tableInMemorySize[0] + ' ' + tableInMemorySize[1];
               }
       },
       { // Spillover to Disk Size
         data: function(row, type) {
                 var tableSpillToDiskSize = convertSizeToHumanReadable(row.sizeSpillToDisk);
-                var dsHtml = '<div style="padding-right:10px; text-align:right;">'
-                             + tableSpillToDiskSize[0] + ' ' + tableSpillToDiskSize[1]
-                           + '</div>';
-                return dsHtml;
+                return tableSpillToDiskSize[0] + ' ' + tableSpillToDiskSize[1];
               }
       },
       { // Total Size
         data: function(row, type) {
                 var tableTotalSize = convertSizeToHumanReadable(row.totalSize);
-                var tsHtml = '<div style="padding-right:10px; text-align:right;">'
-                             + tableTotalSize[0] + ' ' + tableTotalSize[1]
-                           + '</div>';
-                return tsHtml;
+                return tableTotalSize[0] + ' ' + tableTotalSize[1];
               }
       },
       { // Bucket Count
         data: function(row, type) {
-                var bcHtml = '<div style="padding-right:10px; text-align:right;">'
-                             + row.bucketCount
+                var bcHtml = '';
+                if (row.isAnyBucketLost) {
+                  bcHtml = '<div style="padding-right:10px; text-align:right; color:#ea4335;">'
+                           + row.bucketCount
+                         + '</div>';
+                } else {
+                  bcHtml = '<div style="padding-right:10px; text-align:right;">'
+                           + row.bucketCount
+                         + '</div>';
+                }
+                return bcHtml;
+              }
+      },
+      { // Redundancy
+        data: function(row, type) {
+                var bcHtml = '';
+                if (row.distributionType == "REPLICATE") {
+                  bcHtml = '<div style="padding-right:10px; text-align:right;">'
+                           + 'NA'
+                         + '</div>';
+                } else {
+                  bcHtml = '<div style="padding-right:10px; text-align:right;">'
+                           + row.redundancy
+                         + '</div>';
+                }
+                return bcHtml;
+              }
+      },
+      { // Redundancy Status
+        data: function(row, type) {
+                var bcHtml = '';
+                if (row.redundancy == 0) {
+                  bcHtml = '<div style="padding-right:10px; text-align:right;">'
+                           + 'NA'
+                         + '</div>';
+                } else {
+                  if (row.redundancyImpaired) {
+                    bcHtml = '<div style="padding-right:10px; text-align:right; color:#ea4335;">'
+                             + 'BROKEN'
                            + '</div>';
+                  } else {
+                    bcHtml = '<div style="padding-right:10px; text-align:right; color:#34a853;">'
+                             + 'SATISFIED'
+                           + '</div>';
+                  }
+                }
                 return bcHtml;
               }
       }
+    ],
+    "order": [[0, 'asc']],
+    columnDefs: [
+      { type: 'file-size', targets: 4 },
+      { type: 'file-size', targets: 5 },
+      { type: 'file-size', targets: 6 }
     ]
   }
 
@@ -340,6 +539,8 @@ function getExternalTableStatsGridConf() {
   // External Tables Grid Data Table Configurations
   var extTableStatsGridConf = {
     data: extTableStatsGridData,
+    "lengthMenu": [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+    "iDisplayLength": 50,
     "columns": [
       { // Name
         data: function(row, type) {
@@ -365,10 +566,44 @@ function getExternalTableStatsGridConf() {
                 return sourceHtml;
               }
       }
-    ]
+    ],
+    "order": [[0, 'asc']]
   }
 
   return extTableStatsGridConf;
+}
+
+var globalSparklineOptions = {
+      type: 'line',
+      width: '200',
+      height: '100',
+      lineColor: '#0000ff',
+      minSpotColor: '#00bf5f',
+      maxSpotColor: '#ff0000',
+      highlightSpotColor: '#7f007f',
+      highlightLineColor: '#666666',
+      spotRadius: 2.5,
+      numberFormatter: function(value) {
+        if ((value % 1) == 0) {
+          return value;
+        } else {
+          return value.toFixed(3);
+        }
+      }
+}
+
+function updateSparklines(memberStatsGridData) {
+
+  for (var i=0; i < memberStatsGridData.length; i++) {
+    var cpuSL = $('#cpuUsageSparklines-' + memberStatsGridData[i].diskStoreUUID);
+    if (cpuSL.length != 0) {
+      cpuSL.sparkline(memberStatsGridData[i].cpuUsageTrend, globalSparklineOptions);
+    }
+    var memSL = $('#memoryUsageSparklines-' + memberStatsGridData[i].diskStoreUUID);
+    if (memSL.length != 0) {
+      memSL.sparkline(memberStatsGridData[i].aggrMemoryUsageTrend, globalSparklineOptions);
+    }
+  }
 }
 
 function updateUsageCharts(statsData){
@@ -535,6 +770,8 @@ function loadClusterInfo() {
         membersStatsGridCurrPage = 0;
       }
 
+      updateSparklines(memberStatsGridData);
+
       tableStatsGridData = response[0].tablesInfo;
       tableStatsGrid.clear().rows.add(tableStatsGridData).draw();
       if (tableStatsGrid.page.info().pages > tableStatsGridCurrPage) {
@@ -561,6 +798,7 @@ function loadClusterInfo() {
       }
 
       updateCoreDetails(clusterInfo.coresInfo);
+      updateClusterUptime();
 
     },
     error: ajaxRequestErrorHandler
@@ -586,6 +824,8 @@ $(document).ready(function() {
   $.ajaxSetup({
       cache : false
     });
+
+  setClusterStartDate();
 
   $("#myonoffswitch").on( 'change', toggleAutoUpdateSwitch );
 

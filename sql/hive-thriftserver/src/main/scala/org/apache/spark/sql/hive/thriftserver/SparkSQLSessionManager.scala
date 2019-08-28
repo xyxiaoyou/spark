@@ -17,7 +17,7 @@
 /*
  * Changes for SnappyData data platform.
  *
- * Portions Copyright (c) 2018 SnappyData, Inc. All rights reserved.
+ * Portions Copyright (c) 2017-2019 TIBCO Software Inc. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you
  * may not use this file except in compliance with the License. You
@@ -96,6 +96,7 @@ private[hive] class SparkSQLSessionManager(hiveServer: HiveServer2, sqlContext: 
     } else {
       sqlContext.newSession()
     }
+    ctx.setConf("snappydata.sql.planCaching", "true")
     ctx.setConf("spark.sql.hive.version", HiveUtils.hiveExecutionVersion)
     if ((username ne null) && !username.isEmpty) {
       ctx.setConf("user", username)
