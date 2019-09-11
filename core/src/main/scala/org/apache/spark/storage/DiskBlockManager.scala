@@ -177,6 +177,9 @@ private[spark] class DiskBlockManager(conf: SparkConf, deleteFilesOnStop: Boolea
     doStop()
   }
 
+  // The synchronized keywork can be removed while merging latest spark version as with latest
+  // spark version deletion of directory is done by linux native `rm` command and hence it
+  // doesn't log the misleading exception to handle which this method was made synchronized.
   private def doStop(): Unit = synchronized {
     if (deleteFilesOnStop) {
       localDirs.foreach { localDir =>
