@@ -133,7 +133,11 @@ private[spark] class MetricsSystem private (
 
     if (instance == "driver" || instance == "executor") {
       if (metricsNamespace.isDefined && executorId.isDefined) {
-        MetricRegistry.name(metricsNamespace.get, executorId.get, source.sourceName)
+        if (source.sourceName.contains("TIBCO ComputeDB")) {
+          MetricRegistry.name("", "", "TIBCO ComputeDB")
+        } else {
+          MetricRegistry.name(metricsNamespace.get, executorId.get, source.sourceName)
+        }
       } else {
         // Only Driver and Executor set spark.app.id and spark.executor.id.
         // Other instance types, e.g. Master and Worker, are not related to a specific application.
