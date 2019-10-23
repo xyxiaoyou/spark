@@ -30,6 +30,11 @@ import org.apache.spark.internal.config._
 import org.apache.spark.network.util.ByteUnit
 import org.apache.spark.sql.catalyst.analysis.Resolver
 
+import java.util.concurrent.atomic.AtomicReference
+import org.apache.spark.{SparkContext, TaskContext}
+import org.apache.spark.sql.internal.SQLConf.{staticConfKeys, FILES_MAX_PARTITION_BYTES => _, FILES_OPEN_COST_IN_BYTES => _, IGNORE_CORRUPT_FILES => _, _}
+import org.apache.spark.util.Utils
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // This file defines the configuration options for Spark SQL.
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -39,6 +44,9 @@ object SQLConf {
 
   private val sqlConfEntries = java.util.Collections.synchronizedMap(
     new java.util.HashMap[String, ConfigEntry[_]]())
+
+  val staticConfKeys: java.util.Set[String] =
+    java.util.Collections.synchronizedSet(new java.util.HashSet[String]())
 
   private[sql] def register(entry: ConfigEntry[_]): Unit = sqlConfEntries.synchronized {
     require(!sqlConfEntries.containsKey(entry.key),
@@ -51,6 +59,94 @@ object SQLConf {
     def apply(key: String): ConfigBuilder = new ConfigBuilder(key).onCreate(register)
 
   }
+
+  /**
+    * Default config. Only used when there is no active SparkSession for the thread.
+    * See [[get]] for more information.
+    */
+  private lazy val fallbackConf = new ThreadLocal[SQLConf] {
+    override def initialValue: SQLConf = new SQLConf
+  }
+
+  def buildConf(key: String): ConfigBuilder = ConfigBuilder(key).onCreate(register)
+  def buildStaticConf(key: String): ConfigBuilder = {
+    ConfigBuilder(key).onCreate { entry =>
+      staticConfKeys.add(entry.key)
+      SQLConf.register(entry)
+    }
+  }
+
+  /** See [[get]] for more information. */
+  def getFallbackConf: SQLConf = fallbackConf.get()
+
+  private lazy val existingConf = new ThreadLocal[SQLConf] {
+    override def initialValue: SQLConf = null
+  }
+
+  def withExistingConf[T](conf: SQLConf)(f: => T): T = {
+    existingConf.set(conf)
+    try {
+      f
+    } finally {
+      existingConf.remove()
+    }
+  }
+
+  /**
+    * Defines a getter that returns the SQLConf within scope.
+    * See [[get]] for more information.
+    */
+  private val confGetter = new AtomicReference[() => SQLConf](() => fallbackConf.get())
+
+  /**
+    * Sets the active config object within the current scope.
+    * See [[get]] for more information.
+    */
+  def setSQLConfGetter(getter: () => SQLConf): Unit = {
+    confGetter.set(getter)
+  }
+
+  /**
+    * Returns the active config object within the current scope. If there is an active SparkSession,
+    * the proper SQLConf associated with the thread's active session is used. If it's called from
+    * tasks in the executor side, a SQLConf will be created from job local properties, which are set
+    * and propagated from the driver side.
+    *
+    * The way this works is a little bit convoluted, due to the fact that config was added initially
+    * only for physical plans (and as a result not in sql/catalyst module).
+    *
+    * The first time a SparkSession is instantiated, we set the [[confGetter]] to return the
+    * active SparkSession's config. If there is no active SparkSession, it returns using the thread
+    * local [[fallbackConf]]. The reason [[fallbackConf]] is a thread local (rather than just a conf)
+    * is to support setting different config options for different threads so we can potentially
+    * run tests in parallel. At the time this feature was implemented, this was a no-op since we
+    * run unit tests (that does not involve SparkSession) in serial order.
+    */
+  def get: SQLConf = {
+    if (TaskContext.get != null) {
+      new ReadOnlySQLConf(TaskContext.get())
+    } else {
+      val isSchedulerEventLoopThread = SparkContext.getActive
+        .map(_.dagScheduler.eventProcessLoop.eventThread)
+        .exists(_.getId == Thread.currentThread().getId)
+      if (isSchedulerEventLoopThread) {
+        // DAGScheduler event loop thread does not have an active SparkSession, the `confGetter`
+        // will return `fallbackConf` which is unexpected. Here we require the caller to get the
+        // conf within `withExistingConf`, otherwise fail the query.
+        val conf = existingConf.get()
+        if (conf != null) {
+          conf
+        } else if (Utils.isTesting) {
+          throw new RuntimeException("Cannot get SQLConf inside scheduler event loop thread.")
+        } else {
+          confGetter.get()()
+        }
+      } else {
+        confGetter.get()()
+      }
+    }
+  }
+
 
   val OPTIMIZER_MAX_ITERATIONS = SQLConfigBuilder("spark.sql.optimizer.maxIterations")
     .internal()
@@ -649,6 +745,12 @@ object SQLConf {
       "returned.")
     .booleanConf
     .createWithDefault(false)
+
+  val CBO_ENABLED =
+    buildConf("spark.sql.cbo.enabled")
+      .doc("Enables CBO for estimation of plan statistics when set true.")
+      .booleanConf
+      .createWithDefault(false)
 
   object Deprecated {
     val MAPRED_REDUCE_TASKS = "mapred.reduce.tasks"
