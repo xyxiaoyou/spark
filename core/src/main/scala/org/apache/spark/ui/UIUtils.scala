@@ -269,7 +269,7 @@ private[spark] object UIUtils extends Logging {
               if (isCustom) {
                 <div class="product-brand">
                   <a href={prependBaseUri("/")} class="brand">
-                    <img src={prependBaseUri("/static/snappydata/pulse-snappydata-152X50.png")}/>
+                    <img src={prependBaseUri("/static/snappydata/sdp-db-274X35.png")}/>
                   </a>
                 </div>
                   <div class="brand" style="line-height: 2.5;">
