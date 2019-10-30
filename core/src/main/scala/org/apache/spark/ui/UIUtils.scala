@@ -266,54 +266,54 @@ private[spark] object UIUtils extends Logging {
                   false
                 }
               }
-              if(isCustom) {
+              if (isCustom) {
                 <div class="product-brand">
                   <a href={prependBaseUri("/")} class="brand">
-                    <img src={prependBaseUri("/static/snappydata/pulse-snappydata-152X50.png")} />
+                    <img src={prependBaseUri("/static/snappydata/pulse-snappydata-152X50.png")}/>
                   </a>
                 </div>
                   <div class="brand" style="line-height: 2.5;">
                     <a class="brand" href="https://www.snappydata.io/" target="_blank">
                       <img src={prependBaseUri("/static/snappydata/snappydata-175X28.png")}
-                           style="cursor: pointer;" />
+                           style="cursor: pointer;"/>
                     </a>
                   </div>
                   <div class="brand" style="line-height: 2.5;">
                     <img src={prependBaseUri("/static/snappydata/helpicon-18X18.png")}
                          style="cursor: pointer;"
-                         onclick="displayVersionDetails()" />
-                    {getProductVersionNode}
+                         onclick="displayVersionDetails()"/>{getProductVersionNode}
                   </div>
-              }else if (isEnterprise) {
-                <div class="product-brand">
-                  <a href={prependBaseUri("/")} class="brand" style="padding-top: 8px;">
-                    <img src={prependBaseUri("/static/snappydata/tibco-computdb-274X35.png")} />
-                  </a>
-                </div>
-                <div class="brand" style="line-height: 2.5;">
-                  <img src={prependBaseUri("/static/snappydata/helpicon-18X18.png")}
-                       style="cursor: pointer;"
-                       onclick="displayVersionDetails()" />
-                  {getProductVersionNode}
-                </div>
-              } else {
-                <div class="product-brand">
-                  <a href={prependBaseUri("/")} class="brand">
-                    <img src={prependBaseUri("/static/snappydata/pulse-snappydata-152X50.png")} />
-                  </a>
-                </div>
-                <div class="brand" style="line-height: 2.5;">
-                  <a class="brand" href="https://www.snappydata.io/" target="_blank">
-                    <img src={prependBaseUri("/static/snappydata/snappydata-175X28.png")}
-                         style="cursor: pointer;" />
-                  </a>
-                </div>
-                <div class="brand" style="line-height: 2.5;">
-                  <img src={prependBaseUri("/static/snappydata/helpicon-18X18.png")}
-                       style="cursor: pointer;"
-                       onclick="displayVersionDetails()" />
-                  {getProductVersionNode}
-                </div>
+              }
+              else {
+                if (isEnterprise) {
+                  <div class="product-brand">
+                    <a href={prependBaseUri("/")} class="brand" style="padding-top: 8px;">
+                      <img src={prependBaseUri("/static/snappydata/tibco-computdb-274X35.png")}/>
+                    </a>
+                  </div>
+                    <div class="brand" style="line-height: 2.5;">
+                      <img src={prependBaseUri("/static/snappydata/helpicon-18X18.png")}
+                           style="cursor: pointer;"
+                           onclick="displayVersionDetails()"/>{getProductVersionNode}
+                    </div>
+                } else {
+                  <div class="product-brand">
+                    <a href={prependBaseUri("/")} class="brand">
+                      <img src={prependBaseUri("/static/snappydata/pulse-snappydata-152X50.png")}/>
+                    </a>
+                  </div>
+                    <div class="brand" style="line-height: 2.5;">
+                      <a class="brand" href="https://www.snappydata.io/" target="_blank">
+                        <img src={prependBaseUri("/static/snappydata/snappydata-175X28.png")}
+                             style="cursor: pointer;"/>
+                      </a>
+                    </div>
+                    <div class="brand" style="line-height: 2.5;">
+                      <img src={prependBaseUri("/static/snappydata/helpicon-18X18.png")}
+                           style="cursor: pointer;"
+                           onclick="displayVersionDetails()"/>{getProductVersionNode}
+                    </div>
+                }
               }
             }
             <ul class="nav">{header}</ul>
@@ -650,56 +650,86 @@ private[spark] object UIUtils extends Logging {
                     Product Documentation
                   </a>
                 </p>
-            } else if(isEnterprise) {
-              <p>
-                <strong>TIBCO<sup>&reg;</sup> ComputeDB<sup>&trade;</sup>
-                  - Enterprise Edition</strong> <br />
-                <br />&copy; 2017-2019 TIBCO<sup>&reg;</sup> Software Inc. All rights reserved.
-                <br />This program is protected by copyright law.
-              </p>
-              <p>
-                Build Version: {snappyVersionDetails.getOrElse("productVersion", "")} <br/>
-                Build Date: {
-                  val buildDateStr = snappyVersionDetails.getOrElse("buildDate", "");
+            } else {
+              if (isEnterprise) {
+                <p>
+                  <strong>TIBCO
+                    <sup>
+                      &reg;
+                    </sup>
+                    ComputeDB
+                    <sup>
+                      &trade;
+                    </sup>
+                    - Enterprise Edition</strong> <br/>
+                  <br/> &copy;
+                  2017-2019 TIBCO
+                  <sup>
+                    &reg;
+                  </sup>
+                  Software Inc. All rights reserved.
+                  <br/>
+                  This program is protected by copyright law.
+                </p>
+                  <p>
+                    Build Version:
+                    {snappyVersionDetails.getOrElse("productVersion", "")}<br/>
+                    Build Date:
+                    {val buildDateStr = snappyVersionDetails.getOrElse("buildDate", "");
                   if (!buildDateStr.isEmpty) {
                     buildDateStr.substring(0, buildDateStr.indexOf(" "))
-                  } else ""
-                } <br/>
-                Spark Version: {org.apache.spark.SPARK_VERSION}
-              </p>
-              <p>
-                For assistance, get started at: <br />
-                <a href="https://www.tibco.com/" target="_blank">https://www.tibco.com/</a> <br />
-                <a href={"https://tibco-computedb.readthedocs.io/en/enterprise_docv" +
-                    snappyVersionDetails.getOrElse("productVersion", "") + "/"}
-                   target="_blank">
-                  Product Documentation
-                </a>
-              </p>
-            } else {
-              <p>
-                <strong>Project SnappyData<sup>&trade;</sup> - Community Edition </strong> <br />
-                <br />&copy; 2017-2019 TIBCO<sup>&reg;</sup> Software Inc. All rights reserved.
-                <br />This program is protected by copyright law.
-              </p>
-              <p>
-                Build Version: {snappyVersionDetails.getOrElse("productVersion", "")} <br/>
-                Build : {
-                  snappyVersionDetails.getOrElse("buildId", "") + " " +
-                  snappyVersionDetails.getOrElse("buildDate", "")
-                } <br/>
-                Source Revision : {snappyVersionDetails.getOrElse("sourceRevision", "")} <br/>
-                Spark Version: {org.apache.spark.SPARK_VERSION}
-              </p>
-              <p>
-                For assistance, get started at: <br />
-                <a href="https://www.snappydata.io/community" target="_blank">
-                  https://www.snappydata.io/community</a> <br />
-                <a href="https://www.tibco.com/" target="_blank">https://www.tibco.com/</a> <br />
-                <a href="http://snappydatainc.github.io/snappydata/" target="_blank">
-                  Product Documentation
-                </a>
-              </p>
+                  } else ""}<br/>
+                    Spark Version:
+                    {org.apache.spark.SPARK_VERSION}
+                  </p>
+                  <p>
+                    For assistance, get started at:
+                    <br/>
+                    <a href="https://www.tibco.com/" target="_blank">https://www.tibco.com/</a> <br/>
+                    <a href={"https://tibco-computedb.readthedocs.io/en/enterprise_docv" +
+                      snappyVersionDetails.getOrElse("productVersion", "") + "/"}
+                       target="_blank">
+                      Product Documentation
+                    </a>
+                  </p>
+              } else {
+                <p>
+                  <strong>Project SnappyData
+                    <sup>
+                      &trade;
+                    </sup>
+                    - Community Edition</strong> <br/>
+                  <br/> &copy;
+                  2017-2019 TIBCO
+                  <sup>
+                    &reg;
+                  </sup>
+                  Software Inc. All rights reserved.
+                  <br/>
+                  This program is protected by copyright law.
+                </p>
+                  <p>
+                    Build Version:
+                    {snappyVersionDetails.getOrElse("productVersion", "")}<br/>
+                    Build :
+                    {snappyVersionDetails.getOrElse("buildId", "") + " " +
+                    snappyVersionDetails.getOrElse("buildDate", "")}<br/>
+                    Source Revision :
+                    {snappyVersionDetails.getOrElse("sourceRevision", "")}<br/>
+                    Spark Version:
+                    {org.apache.spark.SPARK_VERSION}
+                  </p>
+                  <p>
+                    For assistance, get started at:
+                    <br/>
+                    <a href="https://www.snappydata.io/community" target="_blank">
+                      https://www.snappydata.io/community</a> <br/>
+                    <a href="https://www.tibco.com/" target="_blank">https://www.tibco.com/</a> <br/>
+                    <a href="http://snappydatainc.github.io/snappydata/" target="_blank">
+                      Product Documentation
+                    </a>
+                  </p>
+              }
             }
           }
         </div>
