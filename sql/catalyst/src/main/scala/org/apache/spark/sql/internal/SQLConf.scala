@@ -64,6 +64,7 @@ object SQLConf {
 
   def buildConf(key: String): ConfigBuilder = ConfigBuilder(key).onCreate(register)
 
+
   def buildStaticConf(key: String): ConfigBuilder = {
     ConfigBuilder(key).onCreate { entry =>
       staticConfKeys.add(entry.key)

@@ -35,7 +35,7 @@ class SetOperationSuite extends PlanTest {
         CombineUnions,
         PushProjectionThroughUnion,
         PushDownPredicate,
-        PruneFilters(SimpleCatalystConf(caseSensitiveAnalysis = true))) :: Nil
+        PruneFilters) :: Nil // (SimpleCatalystConf(caseSensitiveAnalysis = true)))
   }
 
   val testRelation = LocalRelation('a.int, 'b.int, 'c.int)

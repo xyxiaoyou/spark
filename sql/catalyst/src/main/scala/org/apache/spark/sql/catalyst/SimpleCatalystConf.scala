@@ -25,7 +25,7 @@ import org.apache.spark.sql.internal.SQLConf
  * for ticket SPARK-19944 (moves SQLConf from sql/core to sql/catalyst). This class should
  * eventually be removed (test cases should just create SQLConf and set values appropriately).
  */
-case class SimpleCatalystConf(
+case class SimpleCatalystConf (
     override val caseSensitiveAnalysis: Boolean,
     override val orderByOrdinal: Boolean = true,
     override val groupByOrdinal: Boolean = true,
