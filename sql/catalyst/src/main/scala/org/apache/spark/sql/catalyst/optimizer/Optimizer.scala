@@ -607,7 +607,7 @@ object CollapseWindow extends Rule[LogicalPlan] {
  * Note: While this optimization is applicable to all types of join, it primarily benefits Inner and
  * LeftSemi joins.
  */
-case class InferFiltersFromConstraints extends Rule[LogicalPlan]
+object InferFiltersFromConstraints extends Rule[LogicalPlan]
     with PredicateHelper with ConstraintHelper {
   def apply(plan: LogicalPlan): LogicalPlan = {
     if (SQLConf.get.constraintPropagationEnabled) {

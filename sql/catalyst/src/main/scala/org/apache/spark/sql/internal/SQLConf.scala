@@ -54,12 +54,6 @@ object SQLConf {
     sqlConfEntries.put(entry.key, entry)
   }
 
-  private[sql] object buildConf {
-
-    def apply(key: String): ConfigBuilder = new ConfigBuilder(key).onCreate(register)
-
-  }
-
   /**
     * Default config. Only used when there is no active SparkSession for the thread.
     * See [[get]] for more information.
