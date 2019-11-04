@@ -62,8 +62,11 @@ object SQLConf {
     override def initialValue: SQLConf = new SQLConf
   }
 
-  def SQLConfigBuilder(key: String): ConfigBuilder = ConfigBuilder(key).onCreate(register)
+  private[sql] object buildConf {
 
+    def apply(key: String): ConfigBuilder = new ConfigBuilder(key).onCreate(register)
+
+  }
 
   def buildStaticConf(key: String): ConfigBuilder = {
     ConfigBuilder(key).onCreate { entry =>
