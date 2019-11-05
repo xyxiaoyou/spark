@@ -750,7 +750,8 @@ object PruneFilters extends Rule[LogicalPlan] with PredicateHelper {
     case f @ Filter(fc, p: LogicalPlan) =>
       val (prunedPredicates, remainingPredicates) =
         splitConjunctivePredicates(fc).partition { cond =>
-          cond.deterministic && p.getConstraints(SQLConf.get.constraintPropagationEnabled).contains(cond)
+          cond.deterministic && p.getConstraints(SQLConf.get.constraintPropagationEnabled).
+            contains(cond)
         }
       if (prunedPredicates.isEmpty) {
         f
