@@ -43,6 +43,17 @@ trait QueryPlanConstraints extends ConstraintHelper { self: LogicalPlan =>
   }
 
   /**
+   * Returns [[constraints]] depending on the config of enabling constraint propagation. If the
+   * flag is disabled, simply returning an empty constraints.
+   */
+  private[spark] def getConstraints(constraintPropagationEnabled: Boolean): ExpressionSet =
+    if (constraintPropagationEnabled) {
+      constraints
+    } else {
+      ExpressionSet(Set.empty)
+    }
+
+  /**
     * This method can be overridden by any child class of QueryPlan to specify a set of constraints
     * based on the given operator's constraint propagation logic. These constraints are then
     * canonicalized and filtered automatically to contain only those attributes that appear in the

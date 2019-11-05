@@ -39,6 +39,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.trees.TreeNode
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, StructType}
+import org.apache.spark.sql.catalyst.plans.logical.QueryPlanConstraints
 
 
 
@@ -201,17 +202,6 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
       expr.children.exists(_.semanticEquals(e))
     }
   }
-
-  /**
-   * Returns [[constraints]] depending on the config of enabling constraint propagation. If the
-   * flag is disabled, simply returning an empty constraints.
-   */
-  private[spark] def getConstraints(constraintPropagationEnabled: Boolean): ExpressionSet =
-    if (constraintPropagationEnabled) {
-      constraints
-    } else {
-      ExpressionSet(Set.empty)
-    }
 
   /**
    * This method can be overridden by any child class of QueryPlan to specify a set of constraints
