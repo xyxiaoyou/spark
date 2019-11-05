@@ -62,12 +62,6 @@ object SQLConf {
     override def initialValue: SQLConf = new SQLConf
   }
 
-  private[sql] object buildConf {
-
-    def apply(key: String): ConfigBuilder = new ConfigBuilder(key).onCreate(register)
-
-  }
-
   def buildStaticConf(key: String): ConfigBuilder = {
     ConfigBuilder(key).onCreate { entry =>
       staticConfKeys.add(entry.key)
@@ -767,6 +761,12 @@ object SQLConf {
  */
 class SQLConf extends Serializable with Logging {
   import SQLConf._
+
+  private[sql] object buildConf {
+
+    def apply(key: String): ConfigBuilder = new ConfigBuilder(key).onCreate(register)
+
+  }
 
   /** Only low degree of contention is expected for conf, thus NOT using ConcurrentHashMap. */
   @transient protected[spark] val settings = java.util.Collections.synchronizedMap(
