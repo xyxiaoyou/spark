@@ -146,8 +146,8 @@ class SimpleTestOptimizer extends Optimizer(
   new SessionCatalog(
     new InMemoryCatalog,
     EmptyFunctionRegistry,
-    new SimpleSQLConf(caseSensitiveAnalysis = true)),
-  new SimpleSQLConf(caseSensitiveAnalysis = true))
+    new SimpleCatalystConf(caseSensitiveAnalysis = true)),
+  new SimpleCatalystConf(caseSensitiveAnalysis = true))
 
 /**
  * Remove redundant aliases from a query plan. A redundant alias is an alias that does not change
