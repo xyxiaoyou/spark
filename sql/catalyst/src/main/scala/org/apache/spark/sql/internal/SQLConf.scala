@@ -17,23 +17,21 @@
 
 package org.apache.spark.sql.internal
 
-import java.util.{NoSuchElementException, Properties}
 import java.util.concurrent.TimeUnit
-
-import scala.collection.JavaConverters._
-import scala.collection.immutable
+import java.util.concurrent.atomic.AtomicReference
+import java.util.{NoSuchElementException, Properties}
 
 import org.apache.hadoop.fs.Path
-
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config._
 import org.apache.spark.network.util.ByteUnit
 import org.apache.spark.sql.catalyst.analysis.Resolver
-
-import java.util.concurrent.atomic.AtomicReference
-import org.apache.spark.{SparkContext, TaskContext}
-import org.apache.spark.sql.internal.SQLConf.{staticConfKeys, FILES_MAX_PARTITION_BYTES => _, FILES_OPEN_COST_IN_BYTES => _, IGNORE_CORRUPT_FILES => _, _}
+import org.apache.spark.sql.internal.SQLConf.{FILES_MAX_PARTITION_BYTES => _, FILES_OPEN_COST_IN_BYTES => _, IGNORE_CORRUPT_FILES => _}
 import org.apache.spark.util.Utils
+import org.apache.spark.{SparkContext, TaskContext}
+
+import scala.collection.JavaConverters._
+import scala.collection.immutable
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // This file defines the configuration options for Spark SQL.
