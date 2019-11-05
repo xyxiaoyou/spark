@@ -35,7 +35,7 @@ private[client] class HiveClientBuilder {
       Some(new File(sys.props("java.io.tmpdir"), "hive-ivy-cache").getAbsolutePath))
   }
 
-  private def buildConf() = {
+  private def SQLConfigBuilder() = {
     lazy val warehousePath = Utils.createTempDir()
     lazy val metastorePath = Utils.createTempDir()
     metastorePath.delete()
@@ -50,7 +50,7 @@ private[client] class HiveClientBuilder {
       hadoopVersion = VersionInfo.getVersion,
       sparkConf = sparkConf,
       hadoopConf = hadoopConf,
-      config = buildConf(),
+      config = SQLConfigBuilder(),
       ivyPath = ivyPath).createClient()
   }
 }
