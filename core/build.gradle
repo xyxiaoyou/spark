@@ -183,7 +183,7 @@ task generateBuildInfo {
   doLast {
     file(extraResourceDir).mkdirs()
     exec {
-       'bash'
+      executable 'bash'
       workingDir = projectDir
       args "${projectDir}/../build/spark-build-info", extraResourceDir, version
     }
