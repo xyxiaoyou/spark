@@ -204,16 +204,6 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
   }
 
   /**
-   * This method can be overridden by any child class of QueryPlan to specify a set of constraints
-   * based on the given operator's constraint propagation logic. These constraints are then
-   * canonicalized and filtered automatically to contain only those attributes that appear in the
-   * [[outputSet]].
-   *
-   * See [[Canonicalize]] for more details.
-   */
-  protected def validConstraints: Set[Expression] = Set.empty
-
-  /**
    * Returns the set of attributes that are output by this node.
    */
   def outputSet: AttributeSet = AttributeSet(output)
