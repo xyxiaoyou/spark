@@ -203,13 +203,6 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
   }
 
   /**
-   * An [[ExpressionSet]] that contains invariants about the rows output by this operator. For
-   * example, if this set contains the expression `a = 2` then that expression is guaranteed to
-   * evaluate to `true` for all rows produced.
-   */
-  lazy val constraints: ExpressionSet = ExpressionSet(getRelevantConstraints(validConstraints))
-
-  /**
    * Returns [[constraints]] depending on the config of enabling constraint propagation. If the
    * flag is disabled, simply returning an empty constraints.
    */
