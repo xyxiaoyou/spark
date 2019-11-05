@@ -25,9 +25,8 @@ set -o pipefail
 set -e
 
 FWDIR="$(cd "`dirname "${BASH_SOURCE[0]}"`"; pwd)"
-ROOTDIR="$(cd "`dirname "${BASH_SOURCE[0]}"`"/../..; pwd)"
-# create variables for scala version;
-SPARK_HOME="${ROOTDIR}/build-artifacts/scala-2.11/snappy"
+SPARK_HOME="$(cd "`dirname "${BASH_SOURCE[0]}"`"/..; pwd)"
+
 if ! hash python 2>/dev/null; then
   echo "Missing python in your path, skipping SQL documentation generation."
   exit 0
@@ -43,10 +42,8 @@ pushd "$FWDIR" > /dev/null
 # Now create the markdown file
 rm -fr docs
 mkdir docs
-
 echo "Generating markdown files for SQL documentation."
-# create variables for scala version
-"$SPARK_HOME/bin/spark-submit" --jars "${ROOTDIR}/build-artifacts/scala-2.11/snappy/jars" gen-sql-markdown.py
+"$SPARK_HOME/bin/spark-submit" gen-sql-markdown.py
 
 # Now create the HTML files
 echo "Generating HTML files for SQL documentation."

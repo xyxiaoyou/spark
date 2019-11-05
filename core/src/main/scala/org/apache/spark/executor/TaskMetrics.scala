@@ -20,9 +20,6 @@ package org.apache.spark.executor
 import scala.collection.JavaConverters._
 import scala.collection.mutable.{ArrayBuffer, LinkedHashMap}
 
-import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
-import com.esotericsoftware.kryo.io.{Input, Output}
-
 import org.apache.spark._
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.internal.Logging
@@ -45,15 +42,15 @@ import org.apache.spark.util._
  * be sent to the driver.
  */
 @DeveloperApi
-class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
+class TaskMetrics private[spark] () extends Serializable {
   // Each metric is internally represented as an accumulator
-  private val _executorDeserializeTime = new DoubleAccumulator
-  private val _executorDeserializeCpuTime = new DoubleAccumulator
-  private val _executorRunTime = new DoubleAccumulator
-  private val _executorCpuTime = new DoubleAccumulator
+  private val _executorDeserializeTime = new LongAccumulator
+  private val _executorDeserializeCpuTime = new LongAccumulator
+  private val _executorRunTime = new LongAccumulator
+  private val _executorCpuTime = new LongAccumulator
   private val _resultSize = new LongAccumulator
   private val _jvmGCTime = new LongAccumulator
-  private val _resultSerializationTime = new DoubleAccumulator
+  private val _resultSerializationTime = new LongAccumulator
   private val _memoryBytesSpilled = new LongAccumulator
   private val _diskBytesSpilled = new LongAccumulator
   private val _peakExecutionMemory = new LongAccumulator
@@ -62,23 +59,23 @@ class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
   /**
    * Time taken on the executor to deserialize this task.
    */
-  def executorDeserializeTime: Long = math.round(_executorDeserializeTime.sum)
+  def executorDeserializeTime: Long = _executorDeserializeTime.sum
 
   /**
    * CPU Time taken on the executor to deserialize this task in nanoseconds.
    */
-  def executorDeserializeCpuTime: Long = math.round(_executorDeserializeCpuTime.sum)
+  def executorDeserializeCpuTime: Long = _executorDeserializeCpuTime.sum
 
   /**
    * Time the executor spends actually running the task (including fetching shuffle data).
    */
-  def executorRunTime: Long = math.round(_executorRunTime.sum)
+  def executorRunTime: Long = _executorRunTime.sum
 
   /**
    * CPU Time the executor spends actually running the task
    * (including fetching shuffle data) in nanoseconds.
    */
-  def executorCpuTime: Long = math.round(_executorCpuTime.sum)
+  def executorCpuTime: Long = _executorCpuTime.sum
 
   /**
    * The number of bytes this task transmitted back to the driver as the TaskResult.
@@ -93,7 +90,7 @@ class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
   /**
    * Amount of time spent serializing the task result.
    */
-  def resultSerializationTime: Long = math.round(_resultSerializationTime.sum)
+  def resultSerializationTime: Long = _resultSerializationTime.sum
 
   /**
    * The number of in-memory bytes spilled by this task.
@@ -115,6 +112,12 @@ class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
 
   /**
    * Storage statuses of any blocks that have been updated as a result of this task.
+   *
+   * Tracking the _updatedBlockStatuses can use a lot of memory.
+   * It is not used anywhere inside of Spark so we would ideally remove it, but its exposed to
+   * the user in SparkListenerTaskEnd so the api is kept for compatibility.
+   * Tracking can be turned off to save memory via config
+   * TASK_METRICS_TRACK_UPDATED_BLOCK_STATUSES.
    */
   def updatedBlockStatuses: Seq[(BlockId, BlockStatus)] = {
     // This is called on driver. All accumulator updates have a fixed value. So it's safe to use
@@ -123,17 +126,16 @@ class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
   }
 
   // Setters and increment-ers
-  private[spark] def setExecutorDeserializeTime(v: Double): Unit =
+  private[spark] def setExecutorDeserializeTime(v: Long): Unit =
     _executorDeserializeTime.setValue(v)
-  private[spark] def setExecutorDeserializeCpuTime(v: Double): Unit =
+  private[spark] def setExecutorDeserializeCpuTime(v: Long): Unit =
     _executorDeserializeCpuTime.setValue(v)
-  private[spark] def setExecutorRunTime(v: Double): Unit = _executorRunTime.setValue(v)
-  private[spark] def setExecutorCpuTime(v: Double): Unit = _executorCpuTime.setValue(v)
+  private[spark] def setExecutorRunTime(v: Long): Unit = _executorRunTime.setValue(v)
+  private[spark] def setExecutorCpuTime(v: Long): Unit = _executorCpuTime.setValue(v)
   private[spark] def setResultSize(v: Long): Unit = _resultSize.setValue(v)
   private[spark] def setJvmGCTime(v: Long): Unit = _jvmGCTime.setValue(v)
-  private[spark] def setResultSerializationTime(v: Double): Unit =
+  private[spark] def setResultSerializationTime(v: Long): Unit =
     _resultSerializationTime.setValue(v)
-  private[spark] def resultSerializationTimeMetric = _resultSerializationTime
   private[spark] def incMemoryBytesSpilled(v: Long): Unit = _memoryBytesSpilled.add(v)
   private[spark] def incDiskBytesSpilled(v: Long): Unit = _diskBytesSpilled.add(v)
   private[spark] def incPeakExecutionMemory(v: Long): Unit = _peakExecutionMemory.add(v)
@@ -219,6 +221,7 @@ class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
     shuffleRead.REMOTE_BLOCKS_FETCHED -> shuffleReadMetrics._remoteBlocksFetched,
     shuffleRead.LOCAL_BLOCKS_FETCHED -> shuffleReadMetrics._localBlocksFetched,
     shuffleRead.REMOTE_BYTES_READ -> shuffleReadMetrics._remoteBytesRead,
+    shuffleRead.REMOTE_BYTES_READ_TO_DISK -> shuffleReadMetrics._remoteBytesReadToDisk,
     shuffleRead.LOCAL_BYTES_READ -> shuffleReadMetrics._localBytesRead,
     shuffleRead.FETCH_WAIT_TIME -> shuffleReadMetrics._fetchWaitTime,
     shuffleRead.RECORDS_READ -> shuffleReadMetrics._recordsRead,
@@ -255,51 +258,10 @@ class TaskMetrics private[spark] () extends Serializable with KryoSerializable {
 
   private[spark] def accumulators(): Seq[AccumulatorV2[_, _]] = internalAccums ++ externalAccums
 
-  /**
-   * Looks for a registered accumulator by accumulator name.
-   */
-  private[spark] def lookForAccumulatorByName(name: String): Option[AccumulatorV2[_, _]] = {
-    accumulators.find { acc =>
-      acc.name.isDefined && acc.name.get == name
-    }
-  }
-
-  override def write(kryo: Kryo, output: Output): Unit = {
-    _executorDeserializeTime.write(kryo, output)
-    _executorDeserializeCpuTime.write(kryo, output)
-    _executorRunTime.write(kryo, output)
-    _executorCpuTime.write(kryo, output)
-    _resultSize.write(kryo, output)
-    _jvmGCTime.write(kryo, output)
-    _resultSerializationTime.write(kryo, output)
-    _memoryBytesSpilled.write(kryo, output)
-    _diskBytesSpilled.write(kryo, output)
-    _peakExecutionMemory.write(kryo, output)
-    _updatedBlockStatuses.write(kryo, output)
-    inputMetrics.write(kryo, output)
-    outputMetrics.write(kryo, output)
-    shuffleReadMetrics.write(kryo, output)
-    shuffleWriteMetrics.write(kryo, output)
-  }
-
-  override def read(kryo: Kryo, input: Input): Unit = {
-    // read the TaskContext thread-local once
-    val taskContext = TaskContext.get()
-    _executorDeserializeTime.read(kryo, input, taskContext)
-    _executorDeserializeCpuTime.read(kryo, input, taskContext)
-    _executorRunTime.read(kryo, input, taskContext)
-    _executorCpuTime.read(kryo, input, taskContext)
-    _resultSize.read(kryo, input, taskContext)
-    _jvmGCTime.read(kryo, input, taskContext)
-    _resultSerializationTime.read(kryo, input, taskContext)
-    _memoryBytesSpilled.read(kryo, input, taskContext)
-    _diskBytesSpilled.read(kryo, input, taskContext)
-    _peakExecutionMemory.read(kryo, input, taskContext)
-    _updatedBlockStatuses.read(kryo, input, taskContext)
-    inputMetrics.read(kryo, input, taskContext)
-    outputMetrics.read(kryo, input, taskContext)
-    shuffleReadMetrics.read(kryo, input, taskContext)
-    shuffleWriteMetrics.read(kryo, input, taskContext)
+  private[spark] def nonZeroInternalAccums(): Seq[AccumulatorV2[_, _]] = {
+    // RESULT_SIZE accumulator is always zero at executor, we need to send it back as its
+    // value will be updated at driver side.
+    internalAccums.filter(a => !a.isZero || a == _resultSize)
   }
 }
 
@@ -337,15 +299,9 @@ private[spark] object TaskMetrics extends Logging {
       if (name == UPDATED_BLOCK_STATUSES) {
         tm.setUpdatedBlockStatuses(value.asInstanceOf[java.util.List[(BlockId, BlockStatus)]])
       } else {
-        tm.nameToAccums.get(name).foreach {
-          case l: LongAccumulator => l.setValue(value.asInstanceOf[Long])
-          case d: DoubleAccumulator => value match {
-            case v: Double => d.setValue(v)
-            case _ => d.setValue(value.asInstanceOf[Long])
-          }
-          case o => throw new UnsupportedOperationException(
-            s"Unexpected accumulator $o for TaskMetrics")
-        }
+        tm.nameToAccums.get(name).foreach(
+          _.asInstanceOf[LongAccumulator].setValue(value.asInstanceOf[Long])
+        )
       }
     }
     tm
@@ -356,16 +312,16 @@ private[spark] object TaskMetrics extends Logging {
    */
   def fromAccumulators(accums: Seq[AccumulatorV2[_, _]]): TaskMetrics = {
     val tm = new TaskMetrics
-    val (internalAccums, externalAccums) =
-      accums.partition(a => a.name.isDefined && tm.nameToAccums.contains(a.name.get))
-
-    internalAccums.foreach { acc =>
-      val tmAcc = tm.nameToAccums(acc.name.get).asInstanceOf[AccumulatorV2[Any, Any]]
-      tmAcc.metadata = acc.metadata
-      tmAcc.merge(acc.asInstanceOf[AccumulatorV2[Any, Any]])
+    for (acc <- accums) {
+      val name = acc.name
+      if (name.isDefined && tm.nameToAccums.contains(name.get)) {
+        val tmAcc = tm.nameToAccums(name.get).asInstanceOf[AccumulatorV2[Any, Any]]
+        tmAcc.metadata = acc.metadata
+        tmAcc.merge(acc.asInstanceOf[AccumulatorV2[Any, Any]])
+      } else {
+        tm.externalAccums += acc
+      }
     }
-
-    tm.externalAccums ++= externalAccums
     tm
   }
 }

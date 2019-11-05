@@ -42,14 +42,14 @@ object ArrayType extends AbstractDataType {
     other.isInstanceOf[ArrayType]
   }
 
-  override private[sql] def simpleString: String = "array"
+  override private[spark] def simpleString: String = "array"
 }
 
 /**
  * The data type for collections of multiple values.
  * Internally these are represented as columns that contain a ``scala.collection.Seq``.
  *
- * Please use [[DataTypes.createArrayType()]] to create a specific instance.
+ * Please use `DataTypes.createArrayType()` to create a specific instance.
  *
  * An [[ArrayType]] object comprises two fields, `elementType: [[DataType]]` and
  * `containsNull: Boolean`. The field of `elementType` is used to specify the type of
@@ -103,7 +103,8 @@ case class ArrayType(elementType: DataType, containsNull: Boolean) extends DataT
       case a : ArrayType => a.interpretedOrdering.asInstanceOf[Ordering[Any]]
       case s: StructType => s.interpretedOrdering.asInstanceOf[Ordering[Any]]
       case other =>
-        throw new IllegalArgumentException(s"Type $other does not support ordered operations")
+        throw new IllegalArgumentException(
+          s"Type ${other.catalogString} does not support ordered operations")
     }
 
     def compare(x: ArrayData, y: ArrayData): Int = {

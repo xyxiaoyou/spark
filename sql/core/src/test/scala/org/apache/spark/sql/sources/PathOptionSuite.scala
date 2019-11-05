@@ -1,25 +1,30 @@
 /*
-* Licensed to the Apache Software Foundation (ASF) under one or more
-* contributor license agreements.  See the NOTICE file distributed with
-* this work for additional information regarding copyright ownership.
-* The ASF licenses this file to You under the Apache License, Version 2.0
-* (the "License"); you may not use this file except in compliance with
-* the License.  You may obtain a copy of the License at
-*
-*    http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 package org.apache.spark.sql.sources
 
-import org.apache.spark.sql.{DataFrame, Row, SQLContext, SaveMode, SparkSession}
+import java.net.URI
+
+import org.apache.hadoop.fs.Path
+
+import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession, SQLContext}
 import org.apache.spark.sql.catalyst.TableIdentifier
-import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, LogicalRelation}
+import org.apache.spark.sql.catalyst.catalog.CatalogUtils
+import org.apache.spark.sql.execution.datasources.LogicalRelation
 import org.apache.spark.sql.test.SharedSQLContext
 import org.apache.spark.sql.types.{IntegerType, Metadata, MetadataBuilder, StructType}
 
@@ -53,8 +58,8 @@ class TestOptionsRelation(val options: Map[String, String])(@transient val sessi
   // We can't get the relation directly for write path, here we put the path option in schema
   // metadata, so that we can test it later.
   override def schema: StructType = {
-    val metadataWithPath = pathOption.map {
-      path => new MetadataBuilder().putString("path", path).build()
+    val metadataWithPath = pathOption.map { path =>
+      new MetadataBuilder().putString("path", path).build()
     }
     new StructType().add("i", IntegerType, true, metadataWithPath.getOrElse(Metadata.empty))
   }
@@ -70,27 +75,29 @@ class PathOptionSuite extends DataSourceTest with SharedSQLContext {
            |USING ${classOf[TestOptionsSource].getCanonicalName}
            |OPTIONS (PATH '/tmp/path')
         """.stripMargin)
-      assert(getPathOption("src") == Some("/tmp/path"))
+      assert(getPathOption("src").map(makeQualifiedPath) == Some(makeQualifiedPath("/tmp/path")))
     }
 
     // should exist even path option is not specified when creating table
     withTable("src") {
       sql(s"CREATE TABLE src(i int) USING ${classOf[TestOptionsSource].getCanonicalName}")
-      assert(getPathOption("src") == Some(defaultTablePath("src")))
+      assert(getPathOption("src").map(makeQualifiedPath) == Some(defaultTablePath("src")))
     }
   }
 
   test("path option also exist for write path") {
     withTable("src") {
-      withTempPath { path =>
+      withTempPath { p =>
         sql(
           s"""
             |CREATE TABLE src
             |USING ${classOf[TestOptionsSource].getCanonicalName}
-            |OPTIONS (PATH '${path.getAbsolutePath}')
+            |OPTIONS (PATH '${p.toURI}')
             |AS SELECT 1
           """.stripMargin)
-        assert(spark.table("src").schema.head.metadata.getString("path") == path.getAbsolutePath)
+        assert(
+          spark.table("src").schema.head.metadata.getString("path") ==
+          p.toURI.toString)
       }
     }
 
@@ -102,7 +109,9 @@ class PathOptionSuite extends DataSourceTest with SharedSQLContext {
            |USING ${classOf[TestOptionsSource].getCanonicalName}
            |AS SELECT 1
           """.stripMargin)
-      assert(spark.table("src").schema.head.metadata.getString("path") == defaultTablePath("src"))
+      assert(
+        makeQualifiedPath(spark.table("src").schema.head.metadata.getString("path")) ==
+        defaultTablePath("src"))
     }
   }
 
@@ -114,34 +123,23 @@ class PathOptionSuite extends DataSourceTest with SharedSQLContext {
            |USING ${classOf[TestOptionsSource].getCanonicalName}
            |OPTIONS (PATH '/tmp/path')""".stripMargin)
       sql("ALTER TABLE src SET LOCATION '/tmp/path2'")
-      assert(getPathOption("src") == Some("/tmp/path2"))
+      assert(getPathOption("src").map(makeQualifiedPath) == Some(makeQualifiedPath("/tmp/path2")))
     }
 
     withTable("src", "src2") {
       sql(s"CREATE TABLE src(i int) USING ${classOf[TestOptionsSource].getCanonicalName}")
       sql("ALTER TABLE src RENAME TO src2")
-      assert(getPathOption("src2") == Some(defaultTablePath("src2")))
-    }
-
-    withTable("src", "src2") {
-      sql(s"CREATE TABLE src(i int) USING parquet")
-      sql("insert into src select id from range(100)")
-      checkDataset(sql("select count(*) from src"), Row(100L))
-      sql("ALTER TABLE src RENAME TO src2")
-      assert(getPathOption("src2").get == defaultTablePath("src2"))
-      checkDataset(sql("select count(*) from src2"), Row(100L))
+      assert(getPathOption("src2").map(makeQualifiedPath) == Some(defaultTablePath("src2")))
     }
   }
 
   private def getPathOption(tableName: String): Option[String] = {
     spark.table(tableName).queryExecution.analyzed.collect {
-      case LogicalRelation(r: TestOptionsRelation, _, _) => r.pathOption
-      case LogicalRelation(r: HadoopFsRelation, _, _) =>
-        r.location.rootPaths.headOption.map(_.toString)
+      case LogicalRelation(r: TestOptionsRelation, _, _, _) => r.pathOption
     }.head
   }
 
-  private def defaultTablePath(tableName: String): String = {
+  private def defaultTablePath(tableName: String): URI = {
     spark.sessionState.catalog.defaultTablePath(TableIdentifier(tableName))
   }
 }

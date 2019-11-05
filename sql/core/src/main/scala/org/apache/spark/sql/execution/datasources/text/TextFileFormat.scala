@@ -19,21 +19,18 @@ package org.apache.spark.sql.execution.datasources.text
 
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileStatus, Path}
-import org.apache.hadoop.io.{NullWritable, Text}
-import org.apache.hadoop.io.compress.GzipCodec
-import org.apache.hadoop.mapreduce.{Job, RecordWriter, TaskAttemptContext}
-import org.apache.hadoop.mapreduce.lib.output.{FileOutputFormat, TextOutputFormat}
-import org.apache.hadoop.util.ReflectionUtils
+import org.apache.hadoop.mapreduce.{Job, TaskAttemptContext}
 
 import org.apache.spark.TaskContext
-import org.apache.spark.sql.{AnalysisException, Row, SparkSession}
+import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.UnsafeRow
-import org.apache.spark.sql.catalyst.expressions.codegen.{BufferHolder, UnsafeRowWriter}
+import org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter
 import org.apache.spark.sql.catalyst.util.CompressionCodecs
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.sources._
-import org.apache.spark.sql.types.{StringType, StructType}
+import org.apache.spark.sql.types.{DataType, StringType, StructType}
 import org.apache.spark.util.SerializableConfiguration
 
 /**
@@ -50,11 +47,14 @@ class TextFileFormat extends TextBasedFileFormat with DataSourceRegister {
       throw new AnalysisException(
         s"Text data source supports only a single column, and you have ${schema.size} columns.")
     }
-    val tpe = schema(0).dataType
-    if (tpe != StringType) {
-      throw new AnalysisException(
-        s"Text data source supports only a string column, but you have ${tpe.simpleString}.")
-    }
+  }
+
+  override def isSplitable(
+      sparkSession: SparkSession,
+      options: Map[String, String],
+      path: Path): Boolean = {
+    val textOptions = new TextOptions(options)
+    super.isSplitable(sparkSession, options, path) && !textOptions.wholeText
   }
 
   override def inferSchema(
@@ -69,9 +69,10 @@ class TextFileFormat extends TextBasedFileFormat with DataSourceRegister {
       dataSchema: StructType): OutputWriterFactory = {
     verifySchema(dataSchema)
 
+    val textOptions = new TextOptions(options)
     val conf = job.getConfiguration
-    val compressionCodec = options.get("compression").map(CompressionCodecs.getCodecClassName)
-    compressionCodec.foreach { codec =>
+
+    textOptions.compressionCodec.foreach { codec =>
       CompressionCodecs.setCodecConfiguration(conf, codec)
     }
 
@@ -80,11 +81,11 @@ class TextFileFormat extends TextBasedFileFormat with DataSourceRegister {
           path: String,
           dataSchema: StructType,
           context: TaskAttemptContext): OutputWriter = {
-        new TextOutputWriter(path, dataSchema, context)
+        new TextOutputWriter(path, dataSchema, textOptions.lineSeparatorInWrite, context)
       }
 
       override def getFileExtension(context: TaskAttemptContext): String = {
-        ".txt" + TextOutputWriter.getCompressionExtension(context)
+        ".txt" + CodecStreams.getCompressionExtension(context)
       }
     }
   }
@@ -100,73 +101,64 @@ class TextFileFormat extends TextBasedFileFormat with DataSourceRegister {
     assert(
       requiredSchema.length <= 1,
       "Text data source only produces a single data column named \"value\".")
-
+    val textOptions = new TextOptions(options)
     val broadcastedHadoopConf =
       sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
 
-    (file: PartitionedFile) => {
-      val reader = new HadoopFileLinesReader(file, broadcastedHadoopConf.value.value)
-      Option(TaskContext.get()).foreach(_.addTaskCompletionListener(_ => reader.close()))
+    readToUnsafeMem(broadcastedHadoopConf, requiredSchema, textOptions)
+  }
 
+  private def readToUnsafeMem(
+      conf: Broadcast[SerializableConfiguration],
+      requiredSchema: StructType,
+      textOptions: TextOptions): (PartitionedFile) => Iterator[UnsafeRow] = {
+
+    (file: PartitionedFile) => {
+      val confValue = conf.value.value
+      val reader = if (!textOptions.wholeText) {
+        new HadoopFileLinesReader(file, textOptions.lineSeparatorInRead, confValue)
+      } else {
+        new HadoopFileWholeTextReader(file, confValue)
+      }
+      Option(TaskContext.get()).foreach(_.addTaskCompletionListener[Unit](_ => reader.close()))
       if (requiredSchema.isEmpty) {
         val emptyUnsafeRow = new UnsafeRow(0)
         reader.map(_ => emptyUnsafeRow)
       } else {
-        val unsafeRow = new UnsafeRow(1)
-        val bufferHolder = new BufferHolder(unsafeRow)
-        val unsafeRowWriter = new UnsafeRowWriter(bufferHolder, 1)
+        val unsafeRowWriter = new UnsafeRowWriter(1)
 
         reader.map { line =>
           // Writes to an UnsafeRow directly
-          bufferHolder.reset()
+          unsafeRowWriter.reset()
           unsafeRowWriter.write(0, line.getBytes, 0, line.getLength)
-          unsafeRow.setTotalSize(bufferHolder.totalSize())
-          unsafeRow
+          unsafeRowWriter.getRow()
         }
       }
     }
   }
+
+  override def supportDataType(dataType: DataType, isReadPath: Boolean): Boolean =
+    dataType == StringType
 }
 
 class TextOutputWriter(
     path: String,
     dataSchema: StructType,
+    lineSeparator: Array[Byte],
     context: TaskAttemptContext)
   extends OutputWriter {
 
-  private[this] val buffer = new Text()
+  private val writer = CodecStreams.createOutputStream(context, new Path(path))
 
-  private val recordWriter: RecordWriter[NullWritable, Text] = {
-    new TextOutputFormat[NullWritable, Text]() {
-      override def getDefaultWorkFile(context: TaskAttemptContext, extension: String): Path = {
-        new Path(path)
-      }
-    }.getRecordWriter(context)
-  }
-
-  override def write(row: Row): Unit = throw new UnsupportedOperationException("call writeInternal")
-
-  override protected[sql] def writeInternal(row: InternalRow): Unit = {
-    val utf8string = row.getUTF8String(0)
-    buffer.set(utf8string.getBytes)
-    recordWriter.write(NullWritable.get(), buffer)
+  override def write(row: InternalRow): Unit = {
+    if (!row.isNullAt(0)) {
+      val utf8string = row.getUTF8String(0)
+      utf8string.writeTo(writer)
+    }
+    writer.write(lineSeparator)
   }
 
   override def close(): Unit = {
-    recordWriter.close(context)
-  }
-}
-
-
-object TextOutputWriter {
-  /** Returns the compression codec extension to be used in a file name, e.g. ".gzip"). */
-  def getCompressionExtension(context: TaskAttemptContext): String = {
-    // Set the compression extension, similar to code in TextOutputFormat.getDefaultWorkFile
-    if (FileOutputFormat.getCompressOutput(context)) {
-      val codecClass = FileOutputFormat.getOutputCompressorClass(context, classOf[GzipCodec])
-      ReflectionUtils.newInstance(codecClass, context.getConfiguration).getDefaultExtension
-    } else {
-      ""
-    }
+    writer.close()
   }
 }

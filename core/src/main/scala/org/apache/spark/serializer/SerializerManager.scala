@@ -23,7 +23,6 @@ import java.nio.ByteBuffer
 import scala.reflect.ClassTag
 
 import org.apache.spark.SparkConf
-import org.apache.spark.internal.config._
 import org.apache.spark.io.CompressionCodec
 import org.apache.spark.security.CryptoStreamUtils
 import org.apache.spark.storage._
@@ -41,6 +40,10 @@ private[spark] class SerializerManager(
   def this(defaultSerializer: Serializer, conf: SparkConf) = this(defaultSerializer, conf, None)
 
   private[this] val kryoSerializer = new KryoSerializer(conf)
+
+  def setDefaultClassLoader(classLoader: ClassLoader): Unit = {
+    kryoSerializer.setDefaultClassLoader(classLoader)
+  }
 
   private[this] val stringClassTag: ClassTag[String] = implicitly[ClassTag[String]]
   private[this] val primitiveAndPrimitiveArrayClassTags: Set[ClassTag[_]] = {
@@ -149,14 +152,14 @@ private[spark] class SerializerManager(
   /**
    * Wrap an output stream for compression if block compression is enabled for its block type
    */
-  private[this] def wrapForCompression(blockId: BlockId, s: OutputStream): OutputStream = {
+  def wrapForCompression(blockId: BlockId, s: OutputStream): OutputStream = {
     if (shouldCompress(blockId)) compressionCodec.compressedOutputStream(s) else s
   }
 
   /**
    * Wrap an input stream for compression if block compression is enabled for its block type
    */
-  private[this] def wrapForCompression(blockId: BlockId, s: InputStream): InputStream = {
+  def wrapForCompression(blockId: BlockId, s: InputStream): InputStream = {
     if (shouldCompress(blockId)) compressionCodec.compressedInputStream(s) else s
   }
 
@@ -168,30 +171,26 @@ private[spark] class SerializerManager(
     val byteStream = new BufferedOutputStream(outputStream)
     val autoPick = !blockId.isInstanceOf[StreamBlockId]
     val ser = getSerializer(implicitly[ClassTag[T]], autoPick).newInstance()
-    ser.serializeStream(wrapStream(blockId, byteStream)).writeAll(values).close()
+    ser.serializeStream(wrapForCompression(blockId, byteStream)).writeAll(values).close()
   }
 
   /** Serializes into a chunked byte buffer. */
   def dataSerialize[T: ClassTag](
       blockId: BlockId,
-      values: Iterator[T],
-      allowEncryption: Boolean = true): ChunkedByteBuffer = {
-    dataSerializeWithExplicitClassTag(blockId, values, implicitly[ClassTag[T]],
-      allowEncryption = allowEncryption)
+      values: Iterator[T]): ChunkedByteBuffer = {
+    dataSerializeWithExplicitClassTag(blockId, values, implicitly[ClassTag[T]])
   }
 
   /** Serializes into a chunked byte buffer. */
   def dataSerializeWithExplicitClassTag(
       blockId: BlockId,
       values: Iterator[_],
-      classTag: ClassTag[_],
-      allowEncryption: Boolean = true): ChunkedByteBuffer = {
+      classTag: ClassTag[_]): ChunkedByteBuffer = {
     val bbos = new ChunkedByteBufferOutputStream(1024 * 1024 * 4, ByteBuffer.allocate)
     val byteStream = new BufferedOutputStream(bbos)
     val autoPick = !blockId.isInstanceOf[StreamBlockId]
     val ser = getSerializer(classTag, autoPick).newInstance()
-    val encrypted = if (allowEncryption) wrapForEncryption(byteStream) else byteStream
-    ser.serializeStream(wrapForCompression(blockId, encrypted)).writeAll(values).close()
+    ser.serializeStream(wrapForCompression(blockId, byteStream)).writeAll(values).close()
     bbos.toChunkedByteBuffer
   }
 
@@ -201,15 +200,13 @@ private[spark] class SerializerManager(
    */
   def dataDeserializeStream[T](
       blockId: BlockId,
-      inputStream: InputStream,
-      maybeEncrypted: Boolean = true)
+      inputStream: InputStream)
       (classTag: ClassTag[T]): Iterator[T] = {
     val stream = new BufferedInputStream(inputStream)
     val autoPick = !blockId.isInstanceOf[StreamBlockId]
-    val decrypted = if (maybeEncrypted) wrapForEncryption(inputStream) else inputStream
     getSerializer(classTag, autoPick)
       .newInstance()
-      .deserializeStream(wrapForCompression(blockId, decrypted))
+      .deserializeStream(wrapForCompression(blockId, stream))
       .asIterator.asInstanceOf[Iterator[T]]
   }
 }

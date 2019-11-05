@@ -110,9 +110,6 @@ public class ThriftHttpCLIService extends ThriftCLIService {
           -1,
           connectionFactories);
 
-      if (hiveHost != null && !hiveHost.isEmpty()) {
-        connector.setHost(hiveHost);
-      }
       connector.setPort(portNum);
       // Linux:yes, Windows:no
       connector.setReuseAddress(!Shell.WINDOWS);

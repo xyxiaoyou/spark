@@ -157,15 +157,27 @@ class StringFunctionsSuite extends QueryTest with SharedSQLContext {
   test("string translate") {
     val df = Seq(("translate", "")).toDF("a", "b")
     checkAnswer(df.select(translate($"a", "rnlt", "123")), Row("1a2s3ae"))
-    checkAnswer(df.selectExpr("""translate(a, 'rnlt', '')"""), Row("asae"))
+    checkAnswer(df.selectExpr("""translate(a, "rnlt", "")"""), Row("asae"))
   }
 
   test("string trim functions") {
-    val df = Seq(("  example  ", "")).toDF("a", "b")
+    val df = Seq(("  example  ", "", "example")).toDF("a", "b", "c")
 
     checkAnswer(
       df.select(ltrim($"a"), rtrim($"a"), trim($"a")),
       Row("example  ", "  example", "example"))
+
+    checkAnswer(
+      df.select(ltrim($"c", "e"), rtrim($"c", "e"), trim($"c", "e")),
+      Row("xample", "exampl", "xampl"))
+
+    checkAnswer(
+      df.select(ltrim($"c", "xe"), rtrim($"c", "emlp"), trim($"c", "elxp")),
+      Row("ample", "exa", "am"))
+
+    checkAnswer(
+      df.select(trim($"c", "xyz")),
+      Row("example"))
 
     checkAnswer(
       df.selectExpr("ltrim(a)", "rtrim(a)", "trim(a)"),
@@ -387,7 +399,7 @@ class StringFunctionsSuite extends QueryTest with SharedSQLContext {
       Row("6.4817"))
 
     checkAnswer(
-      df.select(format_number(lit(BigDecimal(7.128381)), 4)), // not convert anything
+      df.select(format_number(lit(BigDecimal("7.128381")), 4)), // not convert anything
       Row("7.1284"))
 
     intercept[AnalysisException] {

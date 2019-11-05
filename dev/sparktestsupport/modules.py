@@ -25,10 +25,10 @@ all_modules = []
 @total_ordering
 class Module(object):
     """
-    A module is the basic abstraction in our test runner script. Each module consists of a set of
-    source files, a set of test commands, and a set of dependencies on other modules. We use modules
-    to define a dependency graph that lets determine which tests to run based on which files have
-    changed.
+    A module is the basic abstraction in our test runner script. Each module consists of a set
+    of source files, a set of test commands, and a set of dependencies on other modules. We use
+    modules to define a dependency graph that let us determine which tests to run based on which
+    files have changed.
     """
 
     def __init__(self, name, dependencies, source_file_regexes, build_profile_flags=(), environ={},
@@ -123,6 +123,7 @@ sql = Module(
     ],
 )
 
+
 hive = Module(
     name="hive",
     dependencies=[sql],
@@ -142,6 +143,18 @@ hive = Module(
 )
 
 
+repl = Module(
+    name="repl",
+    dependencies=[hive],
+    source_file_regexes=[
+        "repl/",
+    ],
+    sbt_test_goals=[
+        "repl/test",
+    ],
+)
+
+
 hive_thriftserver = Module(
     name="hive-thriftserver",
     dependencies=[hive],
@@ -157,6 +170,16 @@ hive_thriftserver = Module(
     ]
 )
 
+avro = Module(
+    name="avro",
+    dependencies=[sql],
+    source_file_regexes=[
+        "external/avro",
+    ],
+    sbt_test_goals=[
+        "avro/test",
+    ]
+)
 
 sql_kafka = Module(
     name="sql-kafka-0-10",
@@ -229,6 +252,9 @@ streaming_kinesis_asl = Module(
 )
 
 
+# kafka-0-8 support is deprecated as of Spark 2.3 and removed in Spark 3.x.
+# Since Spark 2.4 supports Scala-2.12, and kafka-0-8 does not, we have made
+# streaming-kafka-0-8 optional for pyspark testing in 2.4.
 streaming_kafka = Module(
     name="streaming-kafka-0-8",
     dependencies=[streaming],
@@ -236,6 +262,12 @@ streaming_kafka = Module(
         "external/kafka-0-8",
         "external/kafka-0-8-assembly",
     ],
+    build_profile_flags=[
+        "-Pkafka-0-8",
+    ],
+    environ={
+        "ENABLE_KAFKA_0_8_TESTS": "1"
+    },
     sbt_test_goals=[
         "streaming-kafka-0-8/test",
     ]
@@ -260,6 +292,12 @@ streaming_flume_sink = Module(
     source_file_regexes=[
         "external/flume-sink",
     ],
+    build_profile_flags=[
+        "-Pflume",
+    ],
+    environ={
+        "ENABLE_FLUME_TESTS": "1"
+    },
     sbt_test_goals=[
         "streaming-flume-sink/test",
     ]
@@ -272,6 +310,12 @@ streaming_flume = Module(
     source_file_regexes=[
         "external/flume",
     ],
+    build_profile_flags=[
+        "-Pflume",
+    ],
+    environ={
+        "ENABLE_FLUME_TESTS": "1"
+    },
     sbt_test_goals=[
         "streaming-flume/test",
     ]
@@ -283,7 +327,13 @@ streaming_flume_assembly = Module(
     dependencies=[streaming_flume, streaming_flume_sink],
     source_file_regexes=[
         "external/flume-assembly",
-    ]
+    ],
+    build_profile_flags=[
+        "-Pflume",
+    ],
+    environ={
+        "ENABLE_FLUME_TESTS": "1"
+    }
 )
 
 
@@ -340,6 +390,9 @@ pyspark_core = Module(
         "pyspark.profiler",
         "pyspark.shuffle",
         "pyspark.tests",
+        "pyspark.test_broadcast",
+        "pyspark.test_serializers",
+        "pyspark.util",
     ]
 )
 
@@ -362,6 +415,7 @@ pyspark_sql = Module(
         "pyspark.sql.functions",
         "pyspark.sql.readwriter",
         "pyspark.sql.streaming",
+        "pyspark.sql.udf",
         "pyspark.sql.window",
         "pyspark.sql.tests",
     ]
@@ -380,6 +434,10 @@ pyspark_streaming = Module(
     source_file_regexes=[
         "python/pyspark/streaming"
     ],
+    environ={
+        "ENABLE_FLUME_TESTS": "1",
+        "ENABLE_KAFKA_0_8_TESTS": "1"
+    },
     python_test_goals=[
         "pyspark.streaming.util",
         "pyspark.streaming.tests",
@@ -423,15 +481,18 @@ pyspark_ml = Module(
         "python/pyspark/ml/"
     ],
     python_test_goals=[
-        "pyspark.ml.feature",
         "pyspark.ml.classification",
         "pyspark.ml.clustering",
+        "pyspark.ml.evaluation",
+        "pyspark.ml.feature",
+        "pyspark.ml.fpm",
+        "pyspark.ml.image",
         "pyspark.ml.linalg.__init__",
         "pyspark.ml.recommendation",
         "pyspark.ml.regression",
+        "pyspark.ml.stat",
         "pyspark.ml.tuning",
         "pyspark.ml.tests",
-        "pyspark.ml.evaluation",
     ],
     blacklisted_python_implementations=[
         "PyPy"  # Skip these tests under PyPy since they require numpy and it isn't available there
@@ -470,7 +531,7 @@ yarn = Module(
     name="yarn",
     dependencies=[],
     source_file_regexes=[
-        "yarn/",
+        "resource-managers/yarn/",
         "common/network-yarn/",
     ],
     build_profile_flags=["-Pyarn"],
@@ -486,9 +547,27 @@ yarn = Module(
 mesos = Module(
     name="mesos",
     dependencies=[],
-    source_file_regexes=["mesos/"],
+    source_file_regexes=["resource-managers/mesos/"],
     build_profile_flags=["-Pmesos"],
     sbt_test_goals=["mesos/test"]
+)
+
+kubernetes = Module(
+    name="kubernetes",
+    dependencies=[],
+    source_file_regexes=["resource-managers/kubernetes"],
+    build_profile_flags=["-Pkubernetes"],
+    sbt_test_goals=["kubernetes/test"]
+)
+
+
+spark_ganglia_lgpl = Module(
+    name="spark-ganglia-lgpl",
+    dependencies=[],
+    build_profile_flags=["-Pspark-ganglia-lgpl"],
+    source_file_regexes=[
+        "external/spark-ganglia-lgpl",
+    ]
 )
 
 # The root module is a dummy module which is used to run all of the tests.

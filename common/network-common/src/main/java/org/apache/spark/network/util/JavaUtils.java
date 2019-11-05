@@ -17,11 +17,11 @@
 
 package org.apache.spark.network.util;
 
-import java.io.Closeable;
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.nio.ByteBuffer;
+import java.nio.channels.ReadableByteChannel;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -39,9 +39,7 @@ import org.slf4j.LoggerFactory;
  */
 public class JavaUtils {
   private static final Logger logger = LoggerFactory.getLogger(JavaUtils.class);
-  private static final Pattern timePattern = Pattern.compile("(-?[0-9]+)([a-zA-Z]+)?");
-  private static final Pattern byteAsStringPattern = Pattern.compile("([0-9]+)([a-zA-Z]+)?");
-  private static final Pattern fractionPattern = Pattern.compile("([0-9]+\\.[0-9]+)([a-zA-Z]+)?");
+
   /**
    * Define a default value for driver memory here since this value is referenced across the code
    * base and nearly all files already use Utils.scala
@@ -90,11 +88,24 @@ public class JavaUtils {
    * @throws IOException if deletion is unsuccessful
    */
   public static void deleteRecursively(File file) throws IOException {
+    deleteRecursively(file, null);
+  }
+
+  /**
+   * Delete a file or directory and its contents recursively.
+   * Don't follow directories if they are symlinks.
+   *
+   * @param file Input file / dir to be deleted
+   * @param filter A filename filter that make sure only files / dirs with the satisfied filenames
+   *               are deleted.
+   * @throws IOException if deletion is unsuccessful
+   */
+  public static void deleteRecursively(File file, FilenameFilter filter) throws IOException {
     if (file == null) { return; }
 
     // On Unix systems, use operating system command to run faster
     // If that does not work out, fallback to the Java IO way
-    if (SystemUtils.IS_OS_UNIX) {
+    if (SystemUtils.IS_OS_UNIX && filter == null) {
       try {
         deleteRecursivelyUsingUnixNative(file);
         return;
@@ -104,15 +115,17 @@ public class JavaUtils {
       }
     }
 
-    deleteRecursivelyUsingJavaIO(file);
+    deleteRecursivelyUsingJavaIO(file, filter);
   }
 
-  private static void deleteRecursivelyUsingJavaIO(File file) throws IOException {
+  private static void deleteRecursivelyUsingJavaIO(
+      File file,
+      FilenameFilter filter) throws IOException {
     if (file.isDirectory() && !isSymlink(file)) {
       IOException savedIOException = null;
-      for (File child : listFilesSafely(file)) {
+      for (File child : listFilesSafely(file, filter)) {
         try {
-          deleteRecursively(child);
+          deleteRecursively(child, filter);
         } catch (IOException e) {
           // In case of multiple exceptions, only last one will be thrown
           savedIOException = e;
@@ -123,10 +136,13 @@ public class JavaUtils {
       }
     }
 
-    boolean deleted = file.delete();
-    // Delete can also fail if the file simply did not exist.
-    if (!deleted && file.exists()) {
-      throw new IOException("Failed to delete: " + file.getAbsolutePath());
+    // Delete file only when it's a normal file or an empty directory.
+    if (file.isFile() || (file.isDirectory() && listFilesSafely(file, null).length == 0)) {
+      boolean deleted = file.delete();
+      // Delete can also fail if the file simply did not exist.
+      if (!deleted && file.exists()) {
+        throw new IOException("Failed to delete: " + file.getAbsolutePath());
+      }
     }
   }
 
@@ -156,9 +172,9 @@ public class JavaUtils {
     }
   }
 
-  private static File[] listFilesSafely(File file) throws IOException {
+  private static File[] listFilesSafely(File file, FilenameFilter filter) throws IOException {
     if (file.exists()) {
-      File[] files = file.listFiles();
+      File[] files = file.listFiles(filter);
       if (files == null) {
         throw new IOException("Failed to list files for dir: " + file);
       }
@@ -210,10 +226,10 @@ public class JavaUtils {
    * The unit is also considered the default if the given string does not specify a unit.
    */
   public static long timeStringAs(String str, TimeUnit unit) {
-    String s = str.trim();
+    String lower = str.toLowerCase(Locale.ROOT).trim();
 
     try {
-      Matcher m = timePattern.matcher(s);
+      Matcher m = Pattern.compile("(-?[0-9]+)([a-z]+)?").matcher(lower);
       if (!m.matches()) {
         throw new NumberFormatException("Failed to parse time string: " + str);
       }
@@ -222,13 +238,12 @@ public class JavaUtils {
       String suffix = m.group(2);
 
       // Check for invalid suffixes
-      TimeUnit target = unit;
-      if (suffix != null && (target = timeSuffixes.get(suffix.toLowerCase())) == null) {
+      if (suffix != null && !timeSuffixes.containsKey(suffix)) {
         throw new NumberFormatException("Invalid suffix: \"" + suffix + "\"");
       }
 
       // If suffix is valid use that, otherwise none was provided and use the default passed
-      return unit.convert(val, target);
+      return unit.convert(val, suffix != null ? timeSuffixes.get(suffix) : unit);
     } catch (NumberFormatException e) {
       String timeError = "Time must be specified as seconds (s), " +
               "milliseconds (ms), microseconds (us), minutes (m or min), hour (h), or day (d). " +
@@ -259,25 +274,24 @@ public class JavaUtils {
    * provided, a direct conversion to the provided unit is attempted.
    */
   public static long byteStringAs(String str, ByteUnit unit) {
-    String s = str.trim();
+    String lower = str.toLowerCase(Locale.ROOT).trim();
 
     try {
-      Matcher m = byteAsStringPattern.matcher(s);
-      Matcher fractionMatcher;
+      Matcher m = Pattern.compile("([0-9]+)([a-z]+)?").matcher(lower);
+      Matcher fractionMatcher = Pattern.compile("([0-9]+\\.[0-9]+)([a-z]+)?").matcher(lower);
 
       if (m.matches()) {
         long val = Long.parseLong(m.group(1));
         String suffix = m.group(2);
 
         // Check for invalid suffixes
-        ByteUnit target = unit;
-        if (suffix != null && (target = byteSuffixes.get(suffix.toLowerCase())) == null) {
+        if (suffix != null && !byteSuffixes.containsKey(suffix)) {
           throw new NumberFormatException("Invalid suffix: \"" + suffix + "\"");
         }
 
         // If suffix is valid use that, otherwise none was provided and use the default passed
-        return unit.convertFrom(val, target);
-      } else if ((fractionMatcher = fractionPattern.matcher(s)).matches()) {
+        return unit.convertFrom(val, suffix != null ? byteSuffixes.get(suffix) : unit);
+      } else if (fractionMatcher.matches()) {
         throw new NumberFormatException("Fractional values are not supported. Input was: "
           + fractionMatcher.group(1));
       } else {
@@ -345,6 +359,19 @@ public class JavaUtils {
       byte[] bytes = new byte[buffer.remaining()];
       buffer.get(bytes);
       return bytes;
+    }
+  }
+
+  /**
+   * Fills a buffer with data read from the channel.
+   */
+  public static void readFully(ReadableByteChannel channel, ByteBuffer dst) throws IOException {
+    int expected = dst.remaining();
+    while (dst.hasRemaining()) {
+      if (channel.read(dst) < 0) {
+        throw new EOFException(String.format("Not enough bytes in channel (expected %d).",
+          expected));
+      }
     }
   }
 

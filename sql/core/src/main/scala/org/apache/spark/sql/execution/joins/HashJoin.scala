@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.execution.joins
 
+import org.apache.spark.TaskContext
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans._
@@ -105,9 +106,9 @@ trait HashJoin {
       joinRow.withLeft(srow)
       val matches = hashedRelation.get(joinKeys(srow))
       if (matches != null) {
-        matches.map(joinRow.withRight).filter(boundCondition)
+        matches.map(joinRow.withRight(_)).filter(boundCondition)
       } else {
-        Iterator.empty
+        Seq.empty
       }
     }
   }

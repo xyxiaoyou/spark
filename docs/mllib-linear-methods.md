@@ -222,7 +222,7 @@ svmAlg.optimizer()
   .setNumIterations(200)
   .setRegParam(0.1)
   .setUpdater(new L1Updater());
-final SVMModel modelL1 = svmAlg.run(training.rdd());
+SVMModel modelL1 = svmAlg.run(training.rdd());
 {% endhighlight %}
 
 In order to run the above application, follow the instructions
@@ -425,7 +425,7 @@ We create our model by initializing the weights to zero and register the streams
 testing then start the job. Printing predictions alongside true labels lets us easily see the
 result.
 
-Finally we can save text files with data to the training or testing folders.
+Finally, we can save text files with data to the training or testing folders.
 Each line should be a data point formatted as `(y,[x1,x2,x3])` where `y` is the label
 and `x1,x2,x3` are the features. Anytime a text file is placed in `args(0)`
 the model will update. Anytime a text file is placed in `args(1)` you will see predictions.

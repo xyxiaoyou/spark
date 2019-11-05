@@ -19,9 +19,7 @@ package org.apache.spark.storage
 
 import java.util.UUID
 
-import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
-import com.esotericsoftware.kryo.io.{Input, Output}
-
+import org.apache.spark.SparkException
 import org.apache.spark.annotation.DeveloperApi
 
 /**
@@ -44,27 +42,11 @@ sealed abstract class BlockId {
   def isBroadcast: Boolean = isInstanceOf[BroadcastBlockId]
 
   override def toString: String = name
-  override def hashCode: Int = name.hashCode
-  override def equals(other: Any): Boolean = other match {
-    case o: BlockId => getClass == o.getClass && name.equals(o.name)
-    case _ => false
-  }
 }
 
 @DeveloperApi
-case class RDDBlockId(var rddId: Int, var splitIndex: Int)
-    extends BlockId with KryoSerializable {
-  @transient override lazy val name: String = "rdd_" + rddId + "_" + splitIndex
-
-  override def write(kryo: Kryo, output: Output): Unit = {
-    output.writeInt(rddId)
-    output.writeVarInt(splitIndex, true)
-  }
-
-  override def read(kryo: Kryo, input: Input): Unit = {
-    rddId = input.readInt()
-    splitIndex = input.readVarInt(true)
-  }
+case class RDDBlockId(rddId: Int, splitIndex: Int) extends BlockId {
+  override def name: String = "rdd_" + rddId + "_" + splitIndex
 }
 
 // Format of the shuffle block ids (including data and index) should be kept in sync with
@@ -115,6 +97,10 @@ private[spark] case class TestBlockId(id: String) extends BlockId {
 }
 
 @DeveloperApi
+class UnrecognizedBlockId(name: String)
+    extends SparkException(s"Failed to parse $name into a block ID")
+
+@DeveloperApi
 object BlockId {
   val RDD = "rdd_([0-9]+)_([0-9]+)".r
   val SHUFFLE = "shuffle_([0-9]+)_([0-9]+)_([0-9]+)".r
@@ -123,10 +109,11 @@ object BlockId {
   val BROADCAST = "broadcast_([0-9]+)([_A-Za-z0-9]*)".r
   val TASKRESULT = "taskresult_([0-9]+)".r
   val STREAM = "input-([0-9]+)-([0-9]+)".r
+  val TEMP_LOCAL = "temp_local_([-A-Fa-f0-9]+)".r
+  val TEMP_SHUFFLE = "temp_shuffle_([-A-Fa-f0-9]+)".r
   val TEST = "test_(.*)".r
 
-  /** Converts a BlockId "name" String back into a BlockId. */
-  def apply(id: String): BlockId = id match {
+  def apply(name: String): BlockId = name match {
     case RDD(rddId, splitIndex) =>
       RDDBlockId(rddId.toInt, splitIndex.toInt)
     case SHUFFLE(shuffleId, mapId, reduceId) =>
@@ -141,9 +128,13 @@ object BlockId {
       TaskResultBlockId(taskId.toLong)
     case STREAM(streamId, uniqueId) =>
       StreamBlockId(streamId.toInt, uniqueId.toLong)
+    case TEMP_LOCAL(uuid) =>
+      TempLocalBlockId(UUID.fromString(uuid))
+    case TEMP_SHUFFLE(uuid) =>
+      TempShuffleBlockId(UUID.fromString(uuid))
     case TEST(value) =>
       TestBlockId(value)
     case _ =>
-      throw new IllegalStateException("Unrecognized BlockId: " + id)
+      throw new UnrecognizedBlockId(name)
   }
 }

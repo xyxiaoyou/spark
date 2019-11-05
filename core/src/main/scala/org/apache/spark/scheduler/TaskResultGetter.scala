@@ -61,8 +61,7 @@ private[spark] class TaskResultGetter(sparkEnv: SparkEnv, scheduler: TaskSchedul
     getTaskResultExecutor.execute(new Runnable {
       override def run(): Unit = Utils.logUncaughtExceptions {
         try {
-          val resultSerializer = taskResultSerializer.get()
-          val (result, size) = resultSerializer.deserialize[TaskResult[_]](serializedData) match {
+          val (result, size) = serializer.get().deserialize[TaskResult[_]](serializedData) match {
             case directResult: DirectTaskResult[_] =>
               if (!taskSetManager.canFetchMoreResults(serializedData.limit())) {
                 return
@@ -70,7 +69,7 @@ private[spark] class TaskResultGetter(sparkEnv: SparkEnv, scheduler: TaskSchedul
               // deserialize "value" without holding any lock so that it won't block other threads.
               // We should call it here, so that when it's called again in
               // "TaskSetManager.handleSuccessfulTask", it does not need to deserialize the value.
-              directResult.value()
+              directResult.value(taskResultSerializer.get())
               (directResult, serializedData.limit())
             case IndirectTaskResult(blockId, size) =>
               if (!taskSetManager.canFetchMoreResults(size)) {
@@ -89,10 +88,10 @@ private[spark] class TaskResultGetter(sparkEnv: SparkEnv, scheduler: TaskSchedul
                   taskSetManager, tid, TaskState.FINISHED, TaskResultLost)
                 return
               }
-              val deserializedResult = resultSerializer.deserialize[DirectTaskResult[_]](
+              val deserializedResult = serializer.get().deserialize[DirectTaskResult[_]](
                 serializedTaskResult.get.toByteBuffer)
               // force deserialization of referenced value
-              deserializedResult.value()
+              deserializedResult.value(taskResultSerializer.get())
               sparkEnv.blockManager.master.removeBlock(blockId)
               (deserializedResult, size)
           }
@@ -144,8 +143,12 @@ private[spark] class TaskResultGetter(sparkEnv: SparkEnv, scheduler: TaskSchedul
               logError(
                 "Could not deserialize TaskEndReason: ClassNotFound with classloader " + loader)
             case ex: Exception => // No-op
+          } finally {
+            // If there's an error while deserializing the TaskEndReason, this Runnable
+            // will die. Still tell the scheduler about the task failure, to avoid a hang
+            // where the scheduler thinks the task is still running.
+            scheduler.handleFailedTask(taskSetManager, tid, taskState, reason)
           }
-          scheduler.handleFailedTask(taskSetManager, tid, taskState, reason)
         }
       })
     } catch {

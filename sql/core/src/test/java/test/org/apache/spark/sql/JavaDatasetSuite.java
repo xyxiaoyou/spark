@@ -23,6 +23,8 @@ import java.sql.Date;
 import java.sql.Timestamp;
 import java.util.*;
 
+import org.apache.spark.sql.streaming.GroupStateTimeout;
+import org.apache.spark.sql.streaming.OutputMode;
 import scala.Tuple2;
 import scala.Tuple3;
 import scala.Tuple4;
@@ -32,7 +34,7 @@ import com.google.common.base.Objects;
 import org.junit.*;
 import org.junit.rules.ExpectedException;
 
-import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.*;
 import org.apache.spark.sql.*;
@@ -97,12 +99,7 @@ public class JavaDatasetSuite implements Serializable {
   @Test
   public void testTypedFilterPreservingSchema() {
     Dataset<Long> ds = spark.range(10);
-    Dataset<Long> ds2 = ds.filter(new FilterFunction<Long>() {
-      @Override
-      public boolean call(Long value) throws Exception {
-        return value > 3;
-      }
-    });
+    Dataset<Long> ds2 = ds.filter((FilterFunction<Long>) value -> value > 3);
     Assert.assertEquals(ds.schema(), ds2.schema());
   }
 
@@ -112,44 +109,29 @@ public class JavaDatasetSuite implements Serializable {
     Dataset<String> ds = spark.createDataset(data, Encoders.STRING());
     Assert.assertEquals("hello", ds.first());
 
-    Dataset<String> filtered = ds.filter(new FilterFunction<String>() {
-      @Override
-      public boolean call(String v) throws Exception {
-        return v.startsWith("h");
-      }
-    });
+    Dataset<String> filtered = ds.filter((FilterFunction<String>) v -> v.startsWith("h"));
     Assert.assertEquals(Arrays.asList("hello"), filtered.collectAsList());
 
 
-    Dataset<Integer> mapped = ds.map(new MapFunction<String, Integer>() {
-      @Override
-      public Integer call(String v) throws Exception {
-        return v.length();
-      }
-    }, Encoders.INT());
+    Dataset<Integer> mapped =
+      ds.map((MapFunction<String, Integer>) String::length, Encoders.INT());
     Assert.assertEquals(Arrays.asList(5, 5), mapped.collectAsList());
 
-    Dataset<String> parMapped = ds.mapPartitions(new MapPartitionsFunction<String, String>() {
-      @Override
-      public Iterator<String> call(Iterator<String> it) {
-        List<String> ls = new LinkedList<>();
-        while (it.hasNext()) {
-          ls.add(it.next().toUpperCase(Locale.ENGLISH));
-        }
-        return ls.iterator();
+    Dataset<String> parMapped = ds.mapPartitions((MapPartitionsFunction<String, String>) it -> {
+      List<String> ls = new LinkedList<>();
+      while (it.hasNext()) {
+        ls.add(it.next().toUpperCase(Locale.ROOT));
       }
+      return ls.iterator();
     }, Encoders.STRING());
     Assert.assertEquals(Arrays.asList("HELLO", "WORLD"), parMapped.collectAsList());
 
-    Dataset<String> flatMapped = ds.flatMap(new FlatMapFunction<String, String>() {
-      @Override
-      public Iterator<String> call(String s) {
-        List<String> ls = new LinkedList<>();
-        for (char c : s.toCharArray()) {
-          ls.add(String.valueOf(c));
-        }
-        return ls.iterator();
+    Dataset<String> flatMapped = ds.flatMap((FlatMapFunction<String, String>) s -> {
+      List<String> ls = new LinkedList<>();
+      for (char c : s.toCharArray()) {
+        ls.add(String.valueOf(c));
       }
+      return ls.iterator();
     }, Encoders.STRING());
     Assert.assertEquals(
       Arrays.asList("h", "e", "l", "l", "o", "w", "o", "r", "l", "d"),
@@ -158,16 +140,11 @@ public class JavaDatasetSuite implements Serializable {
 
   @Test
   public void testForeach() {
-    final LongAccumulator accum = jsc.sc().longAccumulator();
+    LongAccumulator accum = jsc.sc().longAccumulator();
     List<String> data = Arrays.asList("a", "b", "c");
     Dataset<String> ds = spark.createDataset(data, Encoders.STRING());
 
-    ds.foreach(new ForeachFunction<String>() {
-      @Override
-      public void call(String s) throws Exception {
-        accum.add(1);
-      }
-    });
+    ds.foreach((ForeachFunction<String>) s -> accum.add(1));
     Assert.assertEquals(3, accum.value().intValue());
   }
 
@@ -176,12 +153,7 @@ public class JavaDatasetSuite implements Serializable {
     List<Integer> data = Arrays.asList(1, 2, 3);
     Dataset<Integer> ds = spark.createDataset(data, Encoders.INT());
 
-    int reduced = ds.reduce(new ReduceFunction<Integer>() {
-      @Override
-      public Integer call(Integer v1, Integer v2) throws Exception {
-        return v1 + v2;
-      }
-    });
+    int reduced = ds.reduce((ReduceFunction<Integer>) (v1, v2) -> v1 + v2);
     Assert.assertEquals(6, reduced);
   }
 
@@ -189,49 +161,62 @@ public class JavaDatasetSuite implements Serializable {
   public void testGroupBy() {
     List<String> data = Arrays.asList("a", "foo", "bar");
     Dataset<String> ds = spark.createDataset(data, Encoders.STRING());
-    KeyValueGroupedDataset<Integer, String> grouped = ds.groupByKey(
-      new MapFunction<String, Integer>() {
-        @Override
-        public Integer call(String v) throws Exception {
-          return v.length();
-        }
-      },
-      Encoders.INT());
+    KeyValueGroupedDataset<Integer, String> grouped =
+      ds.groupByKey((MapFunction<String, Integer>) String::length, Encoders.INT());
 
-    Dataset<String> mapped = grouped.mapGroups(new MapGroupsFunction<Integer, String, String>() {
-      @Override
-      public String call(Integer key, Iterator<String> values) throws Exception {
+    Dataset<String> mapped = grouped.mapGroups(
+      (MapGroupsFunction<Integer, String, String>) (key, values) -> {
         StringBuilder sb = new StringBuilder(key.toString());
         while (values.hasNext()) {
           sb.append(values.next());
         }
         return sb.toString();
-      }
-    }, Encoders.STRING());
+      }, Encoders.STRING());
 
     Assert.assertEquals(asSet("1a", "3foobar"), toSet(mapped.collectAsList()));
 
     Dataset<String> flatMapped = grouped.flatMapGroups(
-      new FlatMapGroupsFunction<Integer, String, String>() {
-        @Override
-        public Iterator<String> call(Integer key, Iterator<String> values) {
+        (FlatMapGroupsFunction<Integer, String, String>) (key, values) -> {
           StringBuilder sb = new StringBuilder(key.toString());
           while (values.hasNext()) {
             sb.append(values.next());
           }
           return Collections.singletonList(sb.toString()).iterator();
-        }
-      },
+        },
       Encoders.STRING());
 
     Assert.assertEquals(asSet("1a", "3foobar"), toSet(flatMapped.collectAsList()));
 
-    Dataset<Tuple2<Integer, String>> reduced = grouped.reduceGroups(new ReduceFunction<String>() {
-      @Override
-      public String call(String v1, String v2) throws Exception {
-        return v1 + v2;
-      }
-    });
+    Dataset<String> mapped2 = grouped.mapGroupsWithState(
+        (MapGroupsWithStateFunction<Integer, String, Long, String>) (key, values, s) -> {
+          StringBuilder sb = new StringBuilder(key.toString());
+          while (values.hasNext()) {
+            sb.append(values.next());
+          }
+          return sb.toString();
+        },
+        Encoders.LONG(),
+        Encoders.STRING());
+
+    Assert.assertEquals(asSet("1a", "3foobar"), toSet(mapped2.collectAsList()));
+
+    Dataset<String> flatMapped2 = grouped.flatMapGroupsWithState(
+        (FlatMapGroupsWithStateFunction<Integer, String, Long, String>) (key, values, s) -> {
+          StringBuilder sb = new StringBuilder(key.toString());
+          while (values.hasNext()) {
+            sb.append(values.next());
+          }
+          return Collections.singletonList(sb.toString()).iterator();
+        },
+      OutputMode.Append(),
+      Encoders.LONG(),
+      Encoders.STRING(),
+      GroupStateTimeout.NoTimeout());
+
+    Assert.assertEquals(asSet("1a", "3foobar"), toSet(flatMapped2.collectAsList()));
+
+    Dataset<Tuple2<Integer, String>> reduced =
+      grouped.reduceGroups((ReduceFunction<String>) (v1, v2) -> v1 + v2);
 
     Assert.assertEquals(
       asSet(tuple2(1, "a"), tuple2(3, "foobar")),
@@ -240,29 +225,21 @@ public class JavaDatasetSuite implements Serializable {
     List<Integer> data2 = Arrays.asList(2, 6, 10);
     Dataset<Integer> ds2 = spark.createDataset(data2, Encoders.INT());
     KeyValueGroupedDataset<Integer, Integer> grouped2 = ds2.groupByKey(
-      new MapFunction<Integer, Integer>() {
-        @Override
-        public Integer call(Integer v) throws Exception {
-          return v / 2;
-        }
-      },
+        (MapFunction<Integer, Integer>) v -> v / 2,
       Encoders.INT());
 
     Dataset<String> cogrouped = grouped.cogroup(
       grouped2,
-      new CoGroupFunction<Integer, String, Integer, String>() {
-        @Override
-        public Iterator<String> call(Integer key, Iterator<String> left, Iterator<Integer> right) {
-          StringBuilder sb = new StringBuilder(key.toString());
-          while (left.hasNext()) {
-            sb.append(left.next());
-          }
-          sb.append("#");
-          while (right.hasNext()) {
-            sb.append(right.next());
-          }
-          return Collections.singletonList(sb.toString()).iterator();
+      (CoGroupFunction<Integer, String, Integer, String>) (key, left, right) -> {
+        StringBuilder sb = new StringBuilder(key.toString());
+        while (left.hasNext()) {
+          sb.append(left.next());
         }
+        sb.append("#");
+        while (right.hasNext()) {
+          sb.append(right.next());
+        }
+        return Collections.singletonList(sb.toString()).iterator();
       },
       Encoders.STRING());
 
@@ -358,6 +335,23 @@ public class JavaDatasetSuite implements Serializable {
     Dataset<Tuple5<Integer, String, Long, String, Boolean>> ds5 =
       spark.createDataset(data5, encoder5);
     Assert.assertEquals(data5, ds5.collectAsList());
+  }
+
+  @Test
+  public void testTupleEncoderSchema() {
+    Encoder<Tuple2<String, Tuple2<String,String>>> encoder =
+      Encoders.tuple(Encoders.STRING(), Encoders.tuple(Encoders.STRING(), Encoders.STRING()));
+    List<Tuple2<String, Tuple2<String, String>>> data = Arrays.asList(tuple2("1", tuple2("a", "b")),
+      tuple2("2", tuple2("c", "d")));
+    Dataset<Row> ds1 = spark.createDataset(data, encoder).toDF("value1", "value2");
+
+    JavaPairRDD<String, Tuple2<String, String>> pairRDD = jsc.parallelizePairs(data);
+    Dataset<Row> ds2 = spark.createDataset(JavaPairRDD.toRDD(pairRDD), encoder)
+      .toDF("value1", "value2");
+
+    Assert.assertEquals(ds1.schema(), ds2.schema());
+    Assert.assertEquals(ds1.select(expr("value2._1")).collectAsList(),
+      ds2.select(expr("value2._1")).collectAsList());
   }
 
   @Test
@@ -672,11 +666,11 @@ public class JavaDatasetSuite implements Serializable {
     obj1.setD(new String[]{"hello", null});
     obj1.setE(Arrays.asList("a", "b"));
     obj1.setF(Arrays.asList(100L, null, 200L));
-    Map<Integer, String> map1 = new HashMap<Integer, String>();
+    Map<Integer, String> map1 = new HashMap<>();
     map1.put(1, "a");
     map1.put(2, "b");
     obj1.setG(map1);
-    Map<String, String> nestedMap1 = new HashMap<String, String>();
+    Map<String, String> nestedMap1 = new HashMap<>();
     nestedMap1.put("x", "1");
     nestedMap1.put("y", "2");
     Map<List<Long>, Map<String, String>> complexMap1 = new HashMap<>();
@@ -690,11 +684,11 @@ public class JavaDatasetSuite implements Serializable {
     obj2.setD(new String[]{null, "world"});
     obj2.setE(Arrays.asList("x", "y"));
     obj2.setF(Arrays.asList(300L, null, 400L));
-    Map<Integer, String> map2 = new HashMap<Integer, String>();
+    Map<Integer, String> map2 = new HashMap<>();
     map2.put(3, "c");
     map2.put(4, "d");
     obj2.setG(map2);
-    Map<String, String> nestedMap2 = new HashMap<String, String>();
+    Map<String, String> nestedMap2 = new HashMap<>();
     nestedMap2.put("q", "1");
     nestedMap2.put("w", "2");
     Map<List<Long>, Map<String, String>> complexMap2 = new HashMap<>();
@@ -815,278 +809,6 @@ public class JavaDatasetSuite implements Serializable {
     public int hashCode() {
       return Objects.hashCode(f);
     }
-  }
-
-  public static class NestedBeanWithArray extends  NestedBean {
-    private Address[] addresses;
-
-    public NestedBeanWithArray() {}
-
-    public NestedBeanWithArray(int id, String name, long longValue, short shortValue, byte byteValue,
-        double doubleValue, float floatValue, boolean booleanValue, byte[] binaryValue,
-        Date date, Timestamp timestamp, Address address, Address[] addresses) {
-      super(id, name, longValue, shortValue, byteValue,
-      doubleValue, floatValue, booleanValue, binaryValue,
-      date, timestamp, address);
-      this.addresses = addresses;
-    }
-
-    public Address[] getAddresses() {
-      return addresses;
-    }
-
-    public void setAddresses(Address[] addresses) {
-      this.addresses = addresses;
-    }
-  }
-
-  public static class NestedBean implements Serializable {
-
-    private int id;
-    private String name;
-    private long longField;
-    private short shortField;
-    private byte byteField;
-    private double doubleField;
-    private float floatField;
-    private boolean booleanField;
-    private byte[] binaryField;
-    private Date date;
-    private Timestamp timestamp;
-    private Address address;
-
-    public NestedBean(int id, String name, long longValue, short shortValue, byte byteValue,
-        double doubleValue, float floatValue, boolean booleanValue, byte[] binaryValue,
-        Date date, Timestamp timestamp, Address address) {
-      this.id = id;
-      this.name = name;
-      this.longField = longValue;
-      this.shortField = shortValue;
-      this.byteField = byteValue;
-      this.doubleField = doubleValue;
-      this.floatField = floatValue;
-      this.booleanField = booleanValue;
-      this.binaryField = binaryValue;
-      this.date = date;
-      this.timestamp = timestamp;
-      this.address = address;
-    }
-
-    public NestedBean() {
-      this(0, null, 0, (short)0, (byte)0, 0d, 0f, false, null, null, null, null);
-    }
-
-    public String getName() {
-      return name;
-    }
-
-    public int getId() {
-      return id;
-    }
-
-    public long getLongField() {
-      return longField;
-    }
-
-    public short getShortField() {
-      return shortField;
-    }
-
-    public byte getByteField() {
-      return byteField;
-    }
-
-    public double getDoubleField() {
-      return doubleField;
-    }
-
-    public float getFloatField() {
-      return floatField;
-    }
-
-    public boolean getBooleanField() {
-      return booleanField;
-    }
-
-    public byte[] getBinaryField() {
-      return binaryField;
-    }
-
-    public Date getDate() {
-      return date;
-    }
-
-    public Timestamp getTimestamp() {
-      return timestamp;
-    }
-
-    public Address getAddress() {
-      return address;
-    }
-
-    public void setName(String name) {
-      this.name = name;
-    }
-
-    public void setId(int id) {
-      this.id = id;
-    }
-
-    public void setLongField(long longValue) {
-      this.longField = longValue;
-    }
-
-    public void setShortField(short shortValue) {
-      this.shortField = shortValue;
-    }
-
-    public void setByteField(byte byteValue) {
-      this.byteField = byteValue;
-    }
-
-    public void setDoubleField(double doubleValue) {
-      this.doubleField = doubleValue;
-    }
-
-    public void setFloatField(float floatValue) {
-      this.floatField = floatValue;
-    }
-
-    public void setBooleanField(boolean booleanValue) {
-      this.booleanField = booleanValue;
-    }
-
-    public void setBinaryField(byte[] binaryValue) {
-      this.binaryField = binaryValue;
-    }
-
-    public void setDate(Date date) {
-      this.date = date;
-    }
-
-    public void setTimestamp(Timestamp timestamp) {
-      this.timestamp = timestamp;
-    }
-
-    public void setAddress(Address address) {
-      this.address = address;
-    }
-  }
-
-  public static class Address implements Serializable {
-
-    private String street;
-    private int zip;
-
-    public Address(String street, int zip) {
-      this.street = street;
-      this.zip = zip;
-    }
-
-    public Address() {
-      this(null, -1);
-    }
-
-    public String getStreet() {
-      return this.street;
-    }
-
-    public int getZip() {
-      return this.zip;
-    }
-
-    public void setStreet(String street) {
-      this.street = street;
-    }
-
-    public void setZip(int zip) {
-      this.zip = zip;
-    }
-  }
-
-  private void checkNestedBeansResult(List<Row> rows) {
-    Set<Integer> keys = new HashSet<>(100);
-    for (int k = 1; k <= 100; k++) {
-      keys.add(k);
-    }
-    for (Row row : rows) {
-      int k = row.<Integer>getAs("id");
-      Assert.assertTrue(keys.remove(k));
-      Assert.assertEquals("String field match not as expected",
-          "name_" + k, row.<String>getAs("name"));
-      Assert.assertEquals("Long field match not as expected",
-          (long)k, row.<Long>getAs("longField").longValue());
-      Assert.assertEquals("Short field match not as expected",
-          (short)k, row.<Short>getAs("shortField").shortValue());
-      Assert.assertEquals("Byte field match not as expected",
-          (byte)k, row.<Byte>getAs("byteField").byteValue());
-      Assert.assertEquals("Double field match not as expected",
-          k * 86.7543d, row.<Double>getAs("doubleField"), 0.0);
-      Assert.assertEquals("Float field match not as expected",
-          k * 7.31f, row.<Float>getAs("floatField"), 0.0f);
-      Assert.assertTrue("Boolean field match not as expected",
-          row.<Boolean>getAs("booleanField"));
-      byte[] bytesValue = new byte[k];
-      Arrays.fill(bytesValue, (byte)k);
-      Assert.assertTrue(Arrays.equals(bytesValue, (byte[])row.getAs("binaryField")));
-      Assert.assertEquals("Date field match not as expected",
-          new Date(7836L * k * 1000L).toString(), row.<Date>getAs("date").toString());
-      Assert.assertEquals("TimeStamp field match not as expected",
-          new Timestamp(7896L * k * 1000L), row.<Timestamp>getAs("timestamp"));
-      Row addressStruct = row.getAs("address");
-      Assert.assertEquals("Address.street field match not as expected",
-          "12320 sw horizon," + k, addressStruct.<String>getAs("street"));
-      Assert.assertEquals("Address.zip field match not as expected",
-          97007 * k, addressStruct.<Integer>getAs("zip").intValue());
-    }
-    assert (keys.isEmpty());
-  }
-
-  private void checkNestedBeansWithArrayResult(List<Row> rows) {
-    Set<Integer> keys = new HashSet<>(100);
-    for (int k = 1; k <= 100; k++) {
-      keys.add(k);
-    }
-    for (Row row : rows) {
-      int k = row.<Integer>getAs("id");
-      Assert.assertTrue(keys.remove(k));
-      Assert.assertEquals("String field match not as expected",
-          "name_" + k, row.<String>getAs("name"));
-      Assert.assertEquals("Long field match not as expected",
-          (long)k, row.<Long>getAs("longField").longValue());
-      Assert.assertEquals("Short field match not as expected",
-          (short)k, row.<Short>getAs("shortField").shortValue());
-      Assert.assertEquals("Byte field match not as expected",
-          (byte)k, row.<Byte>getAs("byteField").byteValue());
-      Assert.assertEquals("Double field match not as expected",
-          k * 86.7543d, row.<Double>getAs("doubleField"), 0.0);
-      Assert.assertEquals("Float field match not as expected",
-          k * 7.31f, row.<Float>getAs("floatField"), 0.0f);
-      Assert.assertTrue("Boolean field match not as expected",
-          row.<Boolean>getAs("booleanField"));
-      byte[] bytesValue = new byte[k];
-      Arrays.fill(bytesValue, (byte)k);
-      Assert.assertTrue(Arrays.equals(bytesValue, (byte[])row.getAs("binaryField")));
-      Assert.assertEquals("Date field match not as expected",
-          new Date(7836L * k * 1000L).toString(), row.<Date>getAs("date").toString());
-      Assert.assertEquals("TimeStamp field match not as expected",
-          new Timestamp(7896L * k * 1000L), row.<Timestamp>getAs("timestamp"));
-      Row addressStruct = row.getAs("address");
-      Assert.assertEquals("Address.street field match not as expected",
-          "12320 sw horizon," + k, addressStruct.<String>getAs("street"));
-      Assert.assertEquals("Address.zip field match not as expected",
-          97007 * k, addressStruct.<Integer>getAs("zip").intValue());
-      List<Row> addresses = row.getList(row.fieldIndex("addresses"));
-      Assert.assertEquals(10, addresses.size());
-      for(int j = 0; j < addresses.size(); ++j) {
-        Assert.assertEquals("Address.street field match not as expected",
-            "12320 sw horizon," + k + "_" + j, addresses.get(j).<String>getAs("street"));
-        Assert.assertEquals("Address.zip field match not as expected",
-            97007 * k * j, addresses.get(j).<Integer>getAs("zip").intValue());
-      }
-
-    }
-    assert (keys.isEmpty());
   }
 
   @Rule
@@ -1569,7 +1291,7 @@ public class JavaDatasetSuite implements Serializable {
   @Test
   public void test() {
     /* SPARK-15285 Large numbers of Nested JavaBeans generates more than 64KB java bytecode */
-    List<NestedComplicatedJavaBean> data = new ArrayList<NestedComplicatedJavaBean>();
+    List<NestedComplicatedJavaBean> data = new ArrayList<>();
     data.add(NestedComplicatedJavaBean.newBuilder().build());
 
     NestedComplicatedJavaBean obj3 = new NestedComplicatedJavaBean();
@@ -1577,6 +1299,178 @@ public class JavaDatasetSuite implements Serializable {
     Dataset<NestedComplicatedJavaBean> ds =
       spark.createDataset(data, Encoders.bean(NestedComplicatedJavaBean.class));
     ds.collectAsList();
+  }
+
+  public enum MyEnum {
+    A("www.elgoog.com"),
+    B("www.google.com");
+
+    private String url;
+
+    MyEnum(String url) {
+      this.url = url;
+    }
+
+    public String getUrl() {
+      return url;
+    }
+
+    public void setUrl(String url) {
+      this.url = url;
+    }
+  }
+
+  public static class BeanWithEnum {
+    MyEnum enumField;
+    String regularField;
+
+    public String getRegularField() {
+      return regularField;
+    }
+
+    public void setRegularField(String regularField) {
+      this.regularField = regularField;
+    }
+
+    public MyEnum getEnumField() {
+      return enumField;
+    }
+
+    public void setEnumField(MyEnum field) {
+      this.enumField = field;
+    }
+
+    public BeanWithEnum(MyEnum enumField, String regularField) {
+      this.enumField = enumField;
+      this.regularField = regularField;
+    }
+
+    public BeanWithEnum() {
+    }
+
+    public String toString() {
+      return "BeanWithEnum(" + enumField  + ", " + regularField + ")";
+    }
+
+    public int hashCode() {
+      return Objects.hashCode(enumField, regularField);
+    }
+
+    public boolean equals(Object other) {
+      if (other instanceof BeanWithEnum) {
+        BeanWithEnum beanWithEnum = (BeanWithEnum) other;
+        return beanWithEnum.regularField.equals(regularField)
+          && beanWithEnum.enumField.equals(enumField);
+      }
+      return false;
+    }
+  }
+
+  @Test
+  public void testBeanWithEnum() {
+    List<BeanWithEnum> data = Arrays.asList(new BeanWithEnum(MyEnum.A, "mira avenue"),
+            new BeanWithEnum(MyEnum.B, "flower boulevard"));
+    Encoder<BeanWithEnum> encoder = Encoders.bean(BeanWithEnum.class);
+    Dataset<BeanWithEnum> ds = spark.createDataset(data, encoder);
+    Assert.assertEquals(ds.collectAsList(), data);
+  }
+
+  public static class EmptyBean implements Serializable {}
+
+  @Test
+  public void testEmptyBean() {
+    EmptyBean bean = new EmptyBean();
+    List<EmptyBean> data = Arrays.asList(bean);
+    Dataset<EmptyBean> df = spark.createDataset(data, Encoders.bean(EmptyBean.class));
+    Assert.assertEquals(df.schema().length(), 0);
+    Assert.assertEquals(df.collectAsList().size(), 1);
+  }
+
+  public class CircularReference1Bean implements Serializable {
+    private CircularReference2Bean child;
+
+    public CircularReference2Bean getChild() {
+      return child;
+    }
+
+    public void setChild(CircularReference2Bean child) {
+      this.child = child;
+    }
+  }
+
+  public class CircularReference2Bean implements Serializable {
+    private CircularReference1Bean child;
+
+    public CircularReference1Bean getChild() {
+      return child;
+    }
+
+    public void setChild(CircularReference1Bean child) {
+      this.child = child;
+    }
+  }
+
+  public class CircularReference3Bean implements Serializable {
+    private CircularReference3Bean[] child;
+
+    public CircularReference3Bean[] getChild() {
+      return child;
+    }
+
+    public void setChild(CircularReference3Bean[] child) {
+      this.child = child;
+    }
+  }
+
+  public class CircularReference4Bean implements Serializable {
+    private Map<String, CircularReference5Bean> child;
+
+    public Map<String, CircularReference5Bean> getChild() {
+      return child;
+    }
+
+    public void setChild(Map<String, CircularReference5Bean> child) {
+      this.child = child;
+    }
+  }
+
+  public class CircularReference5Bean implements Serializable {
+    private String id;
+    private List<CircularReference4Bean> child;
+
+    public String getId() {
+      return id;
+    }
+
+    public List<CircularReference4Bean> getChild() {
+      return child;
+    }
+
+    public void setId(String id) {
+      this.id = id;
+    }
+
+    public void setChild(List<CircularReference4Bean> child) {
+      this.child = child;
+    }
+  }
+
+  @Test(expected = UnsupportedOperationException.class)
+  public void testCircularReferenceBean1() {
+    CircularReference1Bean bean = new CircularReference1Bean();
+    spark.createDataset(Arrays.asList(bean), Encoders.bean(CircularReference1Bean.class));
+  }
+
+  @Test(expected = UnsupportedOperationException.class)
+  public void testCircularReferenceBean2() {
+    CircularReference3Bean bean = new CircularReference3Bean();
+    spark.createDataset(Arrays.asList(bean), Encoders.bean(CircularReference3Bean.class));
+  }
+
+  @Test(expected = UnsupportedOperationException.class)
+  public void testCircularReferenceBean3() {
+    CircularReference4Bean bean = new CircularReference4Bean();
+    spark.createDataset(Arrays.asList(bean), Encoders.bean(CircularReference4Bean.class));
   }
 
   @Test(expected = RuntimeException.class)
@@ -1594,185 +1488,68 @@ public class JavaDatasetSuite implements Serializable {
     Dataset<NestedSmallBean> ds1 = spark.createDataset(beans, encoder);
     Assert.assertEquals(beans, ds1.collectAsList());
     Dataset<NestedSmallBean> ds2 =
-      ds1.map(new MapFunction<NestedSmallBean, NestedSmallBean>() {
-        @Override
-        public NestedSmallBean call(NestedSmallBean b) throws Exception {
-          return b;
-        }
-      }, encoder);
+      ds1.map((MapFunction<NestedSmallBean, NestedSmallBean>) b -> b, encoder);
     Assert.assertEquals(beans, ds2.collectAsList());
   }
 
-  // see SNAP-2061
   @Test
-  public void testNestedBeanInDataFrameFromRDD() {
-    List<NestedBean> beanCollection = new ArrayList<>(100);
-    for (int k = 1; k <= 100; k++) {
-      byte[] bytesValue = new byte[k];
-      Arrays.fill(bytesValue, (byte)k);
-      beanCollection.add(new NestedBean(k, "name_" + k, (long)k, (short)k,
-          (byte)k, (double)k * 86.7543d, (float)k * 7.31f, true,
-          bytesValue, new Date(7836L * k * 1000L), new Timestamp(7896L * k * 1000L),
-          new Address("12320 sw horizon," + k, 97007 * k)));
-    }
-
-    JavaRDD<NestedBean> beanRDD = jsc.parallelize(beanCollection);
-    Dataset<Row> df = spark.createDataFrame(beanRDD, NestedBean.class);
-    checkNestedBeansResult(df.collectAsList());
+  public void testSpecificLists() {
+    SpecificListsBean bean = new SpecificListsBean();
+    ArrayList<Integer> arrayList = new ArrayList<>();
+    arrayList.add(1);
+    bean.setArrayList(arrayList);
+    LinkedList<Integer> linkedList = new LinkedList<>();
+    linkedList.add(1);
+    bean.setLinkedList(linkedList);
+    bean.setList(Collections.singletonList(1));
+    List<SpecificListsBean> beans = Collections.singletonList(bean);
+    Dataset<SpecificListsBean> dataset =
+      spark.createDataset(beans, Encoders.bean(SpecificListsBean.class));
+    Assert.assertEquals(beans, dataset.collectAsList());
   }
 
-  // see SNAP-2061
-  @Test
-  public void testNestedBeanInDatasetFromRDD() {
-    List<NestedBean> beansCollection = new ArrayList<>(100);
-    for (int k = 1; k <= 100; k++) {
-      byte[] bytesValue = new byte[k];
-      Arrays.fill(bytesValue, (byte)k);
-      beansCollection.add(new NestedBean(k, "name_" + k, (long)k, (short)k,
-          (byte)k, (double)k * 86.7543d, (float)k * 7.31f, true,
-          bytesValue, new Date(7836L * k * 1000L), new Timestamp(7896L * k * 1000L),
-          new Address("12320 sw horizon," + k, 97007 * k)));
+  public static class SpecificListsBean implements Serializable {
+    private ArrayList<Integer> arrayList;
+    private LinkedList<Integer> linkedList;
+    private List<Integer> list;
+
+    public ArrayList<Integer> getArrayList() {
+      return arrayList;
     }
 
-    Encoder<NestedBean> encoder = Encoders.bean(NestedBean.class);
-    Dataset<NestedBean> beansDataset = spark.createDataset(beansCollection, encoder);
-    checkNestedBeansResult(beansDataset.toDF().collectAsList());
-
-    beansDataset.createOrReplaceTempView("tempPersonsTable");
-    List<Row> rows = spark.sql("select * from tempPersonsTable").collectAsList();
-    checkNestedBeansResult(rows);
-
-    // test Dataset.as[Person]
-    JavaRDD<Row> beansRDD = jsc.parallelize(rows);
-    Dataset<Row> beansDF = spark.createDataFrame(beansRDD, beansDataset.schema());
-    List<NestedBean> results = beansDF.as(encoder).collectAsList();
-    Set<Integer> keys = new HashSet<>(100);
-    for (int k = 1; k <= 100; k++) {
-      keys.add(k);
-    }
-    for (NestedBean bean : results) {
-      int k = bean.getId();
-      Assert.assertTrue(keys.remove(k));
-      Assert.assertEquals("String field match not as expected", "name_" + k, bean.getName());
-      Assert.assertEquals("Long field match not as expected", k, bean.getLongField());
-      Assert.assertEquals("Short field match not as expected", (short)k, bean.getShortField());
-      Assert.assertEquals("Byte field match not as expected", (byte)k, bean.getByteField());
-      Assert.assertEquals("Double field match not as expected",
-          k * 86.7543d, bean.getDoubleField(), 0.0);
-      Assert.assertEquals("Float field match not as expected",
-          k * 7.31f, bean.getFloatField(), 0.0f);
-      Assert.assertTrue("Boolean field match not as expected", bean.getBooleanField());
-      byte[] bytesValue = new byte[k];
-      Arrays.fill(bytesValue, (byte)k);
-      Assert.assertTrue(Arrays.equals(bytesValue, bean.getBinaryField()));
-      Assert.assertEquals("Date field match not as expected",
-          new Date(7836L * k * 1000L).toString(), bean.getDate().toString());
-      Assert.assertEquals("TimeStamp field match not as expected",
-          new Timestamp(7896L * k * 1000L), bean.getTimestamp());
-      Address address = bean.getAddress();
-      Assert.assertEquals("Address.street field match not as expected",
-          "12320 sw horizon," + k, address.getStreet());
-      Assert.assertEquals("Address.zip field match not as expected",
-          97007 * k, address.getZip());
-    }
-    assert (keys.isEmpty());
-
-    spark.catalog().dropTempView("tempPersonsTable");
-  }
-
-
-  // see SNAP-2384
-  @Test
-  public void testNestedBeanWithArrayInDataFrameFromRDD() {
-    List<NestedBeanWithArray> beanCollection = new ArrayList<>(100);
-    for (int k = 1; k <= 100; k++) {
-      byte[] bytesValue = new byte[k];
-      Arrays.fill(bytesValue, (byte)k);
-      Address[] addresses = new Address[10];
-      for(int i = 0; i < addresses.length; ++i) {
-        addresses[i] = new Address("12320 sw horizon," + k + "_" +i, 97007 * k*i);
-      }
-      beanCollection.add(new NestedBeanWithArray(k, "name_" + k, (long)k, (short)k,
-          (byte)k, (double)k * 86.7543d, (float)k * 7.31f, true,
-          bytesValue, new Date(7836L * k * 1000L), new Timestamp(7896L * k * 1000L),
-          new Address("12320 sw horizon," + k, 97007 * k), addresses));
+    public void setArrayList(ArrayList<Integer> arrayList) {
+      this.arrayList = arrayList;
     }
 
-    JavaRDD<NestedBeanWithArray> beanRDD = jsc.parallelize(beanCollection);
-    Dataset<Row> df = spark.createDataFrame(beanRDD, NestedBeanWithArray.class);
-    checkNestedBeansWithArrayResult(df.collectAsList());
-  }
-
-  // see SNAP-2384
-  @Test
-  public void testNestedBeanInArray() {
-    List<NestedBeanWithArray> beansCollection = new ArrayList<>(100);
-    for (int k = 1; k <= 100; k++) {
-      byte[] bytesValue = new byte[k];
-      Arrays.fill(bytesValue, (byte)k);
-      Address[] addresses = new Address[10];
-      for(int i = 0; i < addresses.length; ++i) {
-        addresses[i] = new Address("12320 sw horizon," + k + "_" +i, 97007 * k*i);
-      }
-      beansCollection.add(new NestedBeanWithArray(k, "name_" + k, (long)k, (short)k,
-          (byte)k, (double)k * 86.7543d, (float)k * 7.31f, true,
-          bytesValue, new Date(7836L * k * 1000L), new Timestamp(7896L * k * 1000L),
-          new Address("12320 sw horizon," + k, 97007 * k), addresses));
+    public LinkedList<Integer> getLinkedList() {
+      return linkedList;
     }
 
-    Encoder<NestedBeanWithArray> encoder = Encoders.bean(NestedBeanWithArray.class);
-    Dataset<NestedBeanWithArray> beansDataset = spark.createDataset(beansCollection, encoder);
-    checkNestedBeansWithArrayResult(beansDataset.toDF().collectAsList());
-
-    beansDataset.createOrReplaceTempView("tempPersonsTable");
-    List<Row> rows = spark.sql("select * from tempPersonsTable").collectAsList();
-    checkNestedBeansWithArrayResult(rows);
-
-    // test Dataset.as[Person]
-    JavaRDD<Row> beansRDD = jsc.parallelize(rows);
-    Dataset<Row> beansDF = spark.createDataFrame(beansRDD, beansDataset.schema());
-    List<NestedBeanWithArray> results = beansDF.as(encoder).collectAsList();
-    Set<Integer> keys = new HashSet<>(100);
-    for (int k = 1; k <= 100; k++) {
-      keys.add(k);
+    public void setLinkedList(LinkedList<Integer> linkedList) {
+      this.linkedList = linkedList;
     }
-    for (NestedBeanWithArray bean : results) {
-      int k = bean.getId();
-      Assert.assertTrue(keys.remove(k));
-      Assert.assertEquals("String field match not as expected", "name_" + k, bean.getName());
-      Assert.assertEquals("Long field match not as expected", k, bean.getLongField());
-      Assert.assertEquals("Short field match not as expected", (short)k, bean.getShortField());
-      Assert.assertEquals("Byte field match not as expected", (byte)k, bean.getByteField());
-      Assert.assertEquals("Double field match not as expected",
-          k * 86.7543d, bean.getDoubleField(), 0.0);
-      Assert.assertEquals("Float field match not as expected",
-          k * 7.31f, bean.getFloatField(), 0.0f);
-      Assert.assertTrue("Boolean field match not as expected", bean.getBooleanField());
-      byte[] bytesValue = new byte[k];
-      Arrays.fill(bytesValue, (byte)k);
-      Assert.assertTrue(Arrays.equals(bytesValue, bean.getBinaryField()));
-      Assert.assertEquals("Date field match not as expected",
-          new Date(7836L * k * 1000L).toString(), bean.getDate().toString());
-      Assert.assertEquals("TimeStamp field match not as expected",
-          new Timestamp(7896L * k * 1000L), bean.getTimestamp());
-      Address address = bean.getAddress();
-      Assert.assertEquals("Address.street field match not as expected",
-          "12320 sw horizon," + k, address.getStreet());
-      Assert.assertEquals("Address.zip field match not as expected",
-          97007 * k, address.getZip());
-      Address[] addresses = bean.getAddresses();
-      Assert.assertEquals(10, addresses.length);
-      for(int j =0; j < addresses.length; ++j) {
-        Address child = addresses[j];
-        Assert.assertEquals("Address.street field match not as expected",
-            "12320 sw horizon," + k + "_" + j, child.getStreet());
-        Assert.assertEquals("Address.zip field match not as expected",
-            97007 * k * j , child.getZip());
 
-      }
+    public List<Integer> getList() {
+      return list;
     }
-    assert (keys.isEmpty());
 
-    spark.catalog().dropTempView("tempPersonsTable");
+    public void setList(List<Integer> list) {
+      this.list = list;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      SpecificListsBean that = (SpecificListsBean) o;
+      return Objects.equal(arrayList, that.arrayList) &&
+        Objects.equal(linkedList, that.linkedList) &&
+        Objects.equal(list, that.list);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hashCode(arrayList, linkedList, list);
+    }
   }
 }

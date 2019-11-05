@@ -27,10 +27,7 @@ import java.util.Map;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
-import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 import org.mockito.stubbing.Stubber;
 
@@ -39,7 +36,7 @@ import static org.mockito.Mockito.*;
 
 import org.apache.spark.network.buffer.ManagedBuffer;
 import org.apache.spark.network.buffer.NioManagedBuffer;
-import org.apache.spark.network.util.SystemPropertyConfigProvider;
+import org.apache.spark.network.util.MapConfigProvider;
 import org.apache.spark.network.util.TransportConf;
 import static org.apache.spark.network.shuffle.RetryingBlockFetcher.BlockFetchStarter;
 
@@ -52,18 +49,6 @@ public class RetryingBlockFetcherSuite {
   ManagedBuffer block0 = new NioManagedBuffer(ByteBuffer.wrap(new byte[13]));
   ManagedBuffer block1 = new NioManagedBuffer(ByteBuffer.wrap(new byte[7]));
   ManagedBuffer block2 = new NioManagedBuffer(ByteBuffer.wrap(new byte[19]));
-
-  @Before
-  public void beforeEach() {
-    System.setProperty("spark.shuffle.io.maxRetries", "2");
-    System.setProperty("spark.shuffle.io.retryWait", "0");
-  }
-
-  @After
-  public void afterEach() {
-    System.clearProperty("spark.shuffle.io.maxRetries");
-    System.clearProperty("spark.shuffle.io.retryWait");
-  }
 
   @Test
   public void testNoFailures() throws IOException, InterruptedException {
@@ -98,7 +83,7 @@ public class RetryingBlockFetcherSuite {
 
     performInteractions(interactions, listener);
 
-    verify(listener).onBlockFetchFailure(eq("b0"), (Throwable) any());
+    verify(listener).onBlockFetchFailure(eq("b0"), any());
     verify(listener).onBlockFetchSuccess("b1", block1);
     verifyNoMoreInteractions(listener);
   }
@@ -204,7 +189,7 @@ public class RetryingBlockFetcherSuite {
     performInteractions(interactions, listener);
 
     verify(listener, timeout(5000)).onBlockFetchSuccess("b0", block0);
-    verify(listener, timeout(5000)).onBlockFetchFailure(eq("b1"), (Throwable) any());
+    verify(listener, timeout(5000)).onBlockFetchFailure(eq("b1"), any());
     verifyNoMoreInteractions(listener);
   }
 
@@ -234,7 +219,7 @@ public class RetryingBlockFetcherSuite {
     performInteractions(interactions, listener);
 
     verify(listener, timeout(5000)).onBlockFetchSuccess("b0", block0);
-    verify(listener, timeout(5000)).onBlockFetchFailure(eq("b1"), (Throwable) any());
+    verify(listener, timeout(5000)).onBlockFetchFailure(eq("b1"), any());
     verify(listener, timeout(5000)).onBlockFetchSuccess("b2", block2);
     verifyNoMoreInteractions(listener);
   }
@@ -254,46 +239,46 @@ public class RetryingBlockFetcherSuite {
                                           BlockFetchingListener listener)
     throws IOException, InterruptedException {
 
-    TransportConf conf = new TransportConf("shuffle", new SystemPropertyConfigProvider());
+    MapConfigProvider provider = new MapConfigProvider(ImmutableMap.of(
+      "spark.shuffle.io.maxRetries", "2",
+      "spark.shuffle.io.retryWait", "0"));
+    TransportConf conf = new TransportConf("shuffle", provider);
     BlockFetchStarter fetchStarter = mock(BlockFetchStarter.class);
 
     Stubber stub = null;
 
     // Contains all blockIds that are referenced across all interactions.
-    final LinkedHashSet<String> blockIds = Sets.newLinkedHashSet();
+    LinkedHashSet<String> blockIds = Sets.newLinkedHashSet();
 
-    for (final Map<String, Object> interaction : interactions) {
+    for (Map<String, Object> interaction : interactions) {
       blockIds.addAll(interaction.keySet());
 
-      Answer<Void> answer = new Answer<Void>() {
-        @Override
-        public Void answer(InvocationOnMock invocationOnMock) throws Throwable {
-          try {
-            // Verify that the RetryingBlockFetcher requested the expected blocks.
-            String[] requestedBlockIds = (String[]) invocationOnMock.getArguments()[0];
-            String[] desiredBlockIds = interaction.keySet().toArray(new String[interaction.size()]);
-            assertArrayEquals(desiredBlockIds, requestedBlockIds);
+      Answer<Void> answer = invocationOnMock -> {
+        try {
+          // Verify that the RetryingBlockFetcher requested the expected blocks.
+          String[] requestedBlockIds = (String[]) invocationOnMock.getArguments()[0];
+          String[] desiredBlockIds = interaction.keySet().toArray(new String[interaction.size()]);
+          assertArrayEquals(desiredBlockIds, requestedBlockIds);
 
-            // Now actually invoke the success/failure callbacks on each block.
-            BlockFetchingListener retryListener =
-              (BlockFetchingListener) invocationOnMock.getArguments()[1];
-            for (Map.Entry<String, Object> block : interaction.entrySet()) {
-              String blockId = block.getKey();
-              Object blockValue = block.getValue();
+          // Now actually invoke the success/failure callbacks on each block.
+          BlockFetchingListener retryListener =
+            (BlockFetchingListener) invocationOnMock.getArguments()[1];
+          for (Map.Entry<String, Object> block : interaction.entrySet()) {
+            String blockId = block.getKey();
+            Object blockValue = block.getValue();
 
-              if (blockValue instanceof ManagedBuffer) {
-                retryListener.onBlockFetchSuccess(blockId, (ManagedBuffer) blockValue);
-              } else if (blockValue instanceof Exception) {
-                retryListener.onBlockFetchFailure(blockId, (Exception) blockValue);
-              } else {
-                fail("Can only handle ManagedBuffers and Exceptions, got " + blockValue);
-              }
+            if (blockValue instanceof ManagedBuffer) {
+              retryListener.onBlockFetchSuccess(blockId, (ManagedBuffer) blockValue);
+            } else if (blockValue instanceof Exception) {
+              retryListener.onBlockFetchFailure(blockId, (Exception) blockValue);
+            } else {
+              fail("Can only handle ManagedBuffers and Exceptions, got " + blockValue);
             }
-            return null;
-          } catch (Throwable e) {
-            e.printStackTrace();
-            throw e;
           }
+          return null;
+        } catch (Throwable e) {
+          e.printStackTrace();
+          throw e;
         }
       };
 
@@ -306,7 +291,7 @@ public class RetryingBlockFetcherSuite {
     }
 
     assertNotNull(stub);
-    stub.when(fetchStarter).createAndStart((String[]) any(), (BlockFetchingListener) anyObject());
+    stub.when(fetchStarter).createAndStart(any(), anyObject());
     String[] blockIdArray = blockIds.toArray(new String[blockIds.size()]);
     new RetryingBlockFetcher(conf, fetchStarter, blockIdArray, listener).start();
   }

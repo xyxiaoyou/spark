@@ -44,9 +44,7 @@ public final class MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
     Message.Type msgType = Message.Type.decode(in);
     Message decoded = decode(msgType, in);
     assert decoded.type() == msgType;
-    if (logger.isTraceEnabled()) {
-      logger.trace("Received message {}: {}", msgType, decoded);
-    }
+    logger.trace("Received message {}: {}", msgType, decoded);
     out.add(decoded);
   }
 
@@ -81,6 +79,9 @@ public final class MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
 
       case StreamFailure:
         return StreamFailure.decode(in);
+
+      case UploadStream:
+        return UploadStream.decode(in);
 
       default:
         throw new IllegalArgumentException("Unexpected message type: " + msgType);

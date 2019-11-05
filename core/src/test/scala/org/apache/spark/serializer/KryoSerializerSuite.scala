@@ -17,13 +17,14 @@
 
 package org.apache.spark.serializer
 
-import java.io.{ByteArrayInputStream, ByteArrayOutputStream, FileInputStream, FileOutputStream}
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
+import java.nio.ByteBuffer
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.reflect.ClassTag
 
-import com.esotericsoftware.kryo.Kryo
+import com.esotericsoftware.kryo.{Kryo, KryoException}
 import com.esotericsoftware.kryo.io.{Input => KryoInput, Output => KryoOutput}
 import org.roaringbitmap.RoaringBitmap
 
@@ -31,7 +32,6 @@ import org.apache.spark.{SharedSparkContext, SparkConf, SparkFunSuite}
 import org.apache.spark.scheduler.HighlyCompressedMapStatus
 import org.apache.spark.serializer.KryoTest._
 import org.apache.spark.storage.BlockManagerId
-import org.apache.spark.util.Utils
 
 class KryoSerializerSuite extends SparkFunSuite with SharedSparkContext {
   conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
@@ -76,6 +76,9 @@ class KryoSerializerSuite extends SparkFunSuite with SharedSparkContext {
   }
 
   test("basic types") {
+    val conf = new SparkConf(false)
+    conf.set("spark.kryo.registrationRequired", "true")
+
     val ser = new KryoSerializer(conf).newInstance()
     def check[T: ClassTag](t: T) {
       assert(ser.deserialize[T](ser.serialize(t)) === t)
@@ -106,6 +109,9 @@ class KryoSerializerSuite extends SparkFunSuite with SharedSparkContext {
   }
 
   test("pairs") {
+    val conf = new SparkConf(false)
+    conf.set("spark.kryo.registrationRequired", "true")
+
     val ser = new KryoSerializer(conf).newInstance()
     def check[T: ClassTag](t: T) {
       assert(ser.deserialize[T](ser.serialize(t)) === t)
@@ -130,12 +136,16 @@ class KryoSerializerSuite extends SparkFunSuite with SharedSparkContext {
   }
 
   test("Scala data structures") {
+    val conf = new SparkConf(false)
+    conf.set("spark.kryo.registrationRequired", "true")
+
     val ser = new KryoSerializer(conf).newInstance()
     def check[T: ClassTag](t: T) {
       assert(ser.deserialize[T](ser.serialize(t)) === t)
     }
     check(List[Int]())
     check(List[Int](1, 2, 3))
+    check(Seq[Int](1, 2, 3))
     check(List[String]())
     check(List[String]("x", "y", "z"))
     check(None)
@@ -189,7 +199,7 @@ class KryoSerializerSuite extends SparkFunSuite with SharedSparkContext {
     def check[T: ClassTag](t: T) {
       assert(ser.deserialize[T](ser.serialize(t)) === t)
       // Check that very long ranges don't get written one element at a time
-      assert(ser.serialize(t).limit < 100)
+      assert(ser.serialize(t).limit() < 100)
     }
     check(1 to 1000000)
     check(1 to 1000000 by 2)
@@ -266,7 +276,7 @@ class KryoSerializerSuite extends SparkFunSuite with SharedSparkContext {
   }
 
   test("kryo with collect for specialized tuples") {
-    assert (sc.parallelize( Array((1, 11), (2, 22), (3, 33)) ).collect().head === (1, 11))
+    assert (sc.parallelize( Array((1, 11), (2, 22), (3, 33)) ).collect().head === ((1, 11)))
   }
 
   test("kryo with SerializableHyperLogLog") {
@@ -351,30 +361,7 @@ class KryoSerializerSuite extends SparkFunSuite with SharedSparkContext {
     val ser = new KryoSerializer(conf).newInstance()
     val thrown = intercept[SparkException](ser.serialize(largeObject))
     assert(thrown.getMessage.contains(kryoBufferMaxProperty))
-  }
-
-  test("SPARK-12222: deserialize RoaringBitmap throw Buffer underflow exception") {
-    val dir = Utils.createTempDir()
-    val tmpfile = dir.toString + "/RoaringBitmap"
-    val outStream = new FileOutputStream(tmpfile)
-    val output = new KryoOutput(outStream)
-    val bitmap = new RoaringBitmap
-    bitmap.add(1)
-    bitmap.add(3)
-    bitmap.add(5)
-    // Ignore Kryo because it doesn't use writeObject
-    bitmap.serialize(new KryoOutputObjectOutputBridge(null, output))
-    output.flush()
-    output.close()
-
-    val inStream = new FileInputStream(tmpfile)
-    val input = new KryoInput(inStream)
-    val ret = new RoaringBitmap
-    // Ignore Kryo because it doesn't use readObject
-    ret.deserialize(new KryoInputObjectInputBridge(null, input))
-    input.close()
-    assert(ret == bitmap)
-    Utils.deleteRecursively(dir)
+    assert(thrown.getCause.isInstanceOf[KryoException])
   }
 
   test("KryoOutputObjectOutputBridge.writeObject and KryoInputObjectInputBridge.readObject") {
@@ -398,6 +385,26 @@ class KryoSerializerSuite extends SparkFunSuite with SharedSparkContext {
       classOf[RegistratorWithoutAutoReset].getName)
     val ser2 = new KryoSerializer(conf).newInstance().asInstanceOf[KryoSerializerInstance]
     assert(!ser2.getAutoReset)
+  }
+
+  test("SPARK-25176 ClassCastException when writing a Map after previously " +
+    "reading a Map with different generic type") {
+    // This test uses the example in https://github.com/EsotericSoftware/kryo/issues/384
+    import java.util._
+    val ser = new KryoSerializer(new SparkConf).newInstance().asInstanceOf[KryoSerializerInstance]
+
+    class MapHolder {
+      private val mapOne = new HashMap[Int, String]
+      private val mapTwo = this.mapOne
+    }
+
+    val serializedMapHolder = ser.serialize(new MapHolder)
+    ser.deserialize[MapHolder](serializedMapHolder)
+
+    val stringMap = new HashMap[Int, List[String]]
+    stringMap.put(1, new ArrayList[String])
+    val serializedMap = ser.serialize[Map[Int, List[String]]](stringMap)
+    ser.deserialize[HashMap[Int, List[String]]](serializedMap)
   }
 
   private def testSerializerInstanceReuse(autoReset: Boolean, referenceTracking: Boolean): Unit = {
@@ -429,6 +436,14 @@ class KryoSerializerSuite extends SparkFunSuite with SharedSparkContext {
     test(s"instance reuse with autoReset = $autoReset, referenceTracking = $referenceTracking") {
       testSerializerInstanceReuse(autoReset = autoReset, referenceTracking = referenceTracking)
     }
+  }
+
+  test("SPARK-27216: test RoaringBitmap ser/dser with Kryo") {
+    val expected = new RoaringBitmap()
+    expected.add(1787)
+    val ser = new KryoSerializer(conf).newInstance()
+    val actual: RoaringBitmap = ser.deserialize(ser.serialize(expected))
+    assert(actual === expected)
   }
 }
 
@@ -464,7 +479,18 @@ class KryoSerializerAutoResetDisabledSuite extends SparkFunSuite with SharedSpar
     val deserializationStream = serInstance.deserializeStream(new ByteArrayInputStream(worldWorld))
     assert(deserializationStream.readValue[Any]() === world)
     deserializationStream.close()
-    assert(serInstance.deserialize[Any](helloHello) === (hello, hello))
+    assert(serInstance.deserialize[Any](helloHello) === ((hello, hello)))
+  }
+
+  test("SPARK-25786: ByteBuffer.array -- UnsupportedOperationException") {
+    val serInstance = new KryoSerializer(conf).newInstance().asInstanceOf[KryoSerializerInstance]
+    val obj = "UnsupportedOperationException"
+    val serObj = serInstance.serialize(obj)
+    val byteBuffer = ByteBuffer.allocateDirect(serObj.array().length)
+    byteBuffer.put(serObj.array())
+    byteBuffer.flip()
+    assert(serInstance.deserialize[Any](serObj) === (obj))
+    assert(serInstance.deserialize[Any](byteBuffer) === (obj))
   }
 }
 

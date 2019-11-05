@@ -23,14 +23,9 @@ import java.util.{ArrayList, Collections}
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
-import scala.collection.JavaConverters._
-
-import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
-import com.esotericsoftware.kryo.io.{Input, Output}
-
 import org.apache.spark.{InternalAccumulator, SparkContext, TaskContext}
+import org.apache.spark.internal.Logging
 import org.apache.spark.scheduler.AccumulableInfo
-
 
 private[spark] case class AccumulatorMetadata(
     id: Long,
@@ -47,7 +42,7 @@ private[spark] case class AccumulatorMetadata(
  */
 abstract class AccumulatorV2[IN, OUT] extends Serializable {
   private[spark] var metadata: AccumulatorMetadata = _
-  private[spark] var atDriverSide = true
+  private[this] var atDriverSide = true
 
   private[spark] def register(
       sc: SparkContext,
@@ -56,8 +51,7 @@ abstract class AccumulatorV2[IN, OUT] extends Serializable {
     if (this.metadata != null) {
       throw new IllegalStateException("Cannot register an Accumulator twice.")
     }
-    val id = AccumulatorContext.newId()
-    this.metadata = AccumulatorMetadata(id, name, countFailedValues)
+    this.metadata = AccumulatorMetadata(AccumulatorContext.newId(), name, countFailedValues)
     AccumulatorContext.register(this)
     sc.cleaner.foreach(_.registerAccumulatorForCleanup(this))
   }
@@ -72,7 +66,7 @@ abstract class AccumulatorV2[IN, OUT] extends Serializable {
 
   private def assertMetadataNotNull(): Unit = {
     if (metadata == null) {
-      throw new IllegalAccessError("The metadata of this accumulator has not been assigned yet.")
+      throw new IllegalStateException("The metadata of this accumulator has not been assigned yet.")
     }
   }
 
@@ -89,7 +83,12 @@ abstract class AccumulatorV2[IN, OUT] extends Serializable {
    */
   final def name: Option[String] = {
     assertMetadataNotNull()
-    metadata.name
+
+    if (atDriverSide) {
+      metadata.name.orElse(AccumulatorContext.get(id).flatMap(_.metadata.name))
+    } else {
+      metadata.name
+    }
   }
 
   /**
@@ -165,7 +164,17 @@ abstract class AccumulatorV2[IN, OUT] extends Serializable {
       }
       val copyAcc = copyAndReset()
       assert(copyAcc.isZero, "copyAndReset must return a zero value copy")
-      copyAcc.metadata = metadata
+      val isInternalAcc = name.isDefined && name.get.startsWith(InternalAccumulator.METRICS_PREFIX)
+      if (isInternalAcc) {
+        // Do not serialize the name of internal accumulator and send it to executor.
+        copyAcc.metadata = metadata.copy(name = None)
+      } else {
+        // For non-internal accumulators, we still need to send the name because users may need to
+        // access the accumulator name at executor side, or they may keep the accumulators sent from
+        // executors and access the name when the registered accumulator is already garbage
+        // collected(e.g. SQLMetrics).
+        copyAcc.metadata = metadata
+      }
       copyAcc
     } else {
       this
@@ -191,76 +200,21 @@ abstract class AccumulatorV2[IN, OUT] extends Serializable {
   }
 
   override def toString: String = {
+    // getClass.getSimpleName can cause Malformed class name error,
+    // call safer `Utils.getSimpleName` instead
     if (metadata == null) {
-      "Un-registered Accumulator: " + getClass.getSimpleName
+      "Un-registered Accumulator: " + Utils.getSimpleName(getClass)
     } else {
-      getClass.getSimpleName + s"(id: $id, name: $name, value: $value)"
+      Utils.getSimpleName(getClass) + s"(id: $id, name: $name, value: $value)"
     }
   }
 }
 
-abstract class AccumulatorV2Kryo[IN, OUT]
-    extends AccumulatorV2[IN, OUT] with KryoSerializable {
-
-  /**
-   * Child classes cannot override this and must instead implement
-   * writeKryo/readKryo for consistent writeReplace() behavior.
-   */
-  override final def write(kryo: Kryo, output: Output): Unit = {
-    var instance = this
-    if (atDriverSide) {
-      instance = copyAndReset().asInstanceOf[AccumulatorV2Kryo[IN, OUT]]
-      assert(instance.isZero, "copyAndReset must return a zero value copy")
-      instance.metadata = this.metadata
-    }
-    val metadata = instance.metadata
-    output.writeLong(metadata.id)
-    metadata.name match {
-      case None => output.writeString(null)
-      case Some(name) => output.writeString(name)
-    }
-    output.writeBoolean(metadata.countFailedValues)
-    output.writeBoolean(instance.atDriverSide)
-
-    instance.writeKryo(kryo, output)
-  }
-
-  /**
-   * Child classes must implement readKryo() and cannot override this.
-   */
-  override final def read(kryo: Kryo, input: Input): Unit = {
-    read(kryo, input, context = null)
-  }
-
-  final def read(kryo: Kryo, input: Input, context: TaskContext): Unit = {
-    val id = input.readLong()
-    val name = input.readString()
-    metadata = AccumulatorMetadata(id, Option(name), input.readBoolean())
-    atDriverSide = input.readBoolean()
-    if (atDriverSide) {
-      atDriverSide = false
-      // Automatically register the accumulator when it is deserialized with the task closure.
-      // This is for external accumulators and internal ones that do not represent task level
-      // metrics, e.g. internal SQL metrics, which are per-operator.
-      val taskContext = if (context != null) context else TaskContext.get()
-      if (taskContext != null) {
-        taskContext.registerAccumulator(this)
-      }
-    } else {
-      atDriverSide = true
-    }
-
-    readKryo(kryo, input)
-  }
-
-  def writeKryo(kryo: Kryo, output: Output): Unit
-  def readKryo(kryo: Kryo, input: Input): Unit
-}
 
 /**
  * An internal class used to track accumulators by Spark itself.
  */
-private[spark] object AccumulatorContext {
+private[spark] object AccumulatorContext extends Logging {
 
   /**
    * This global map holds the original accumulator objects that are created on the driver.
@@ -307,13 +261,16 @@ private[spark] object AccumulatorContext {
    * Returns the [[AccumulatorV2]] registered with the given ID, if any.
    */
   def get(id: Long): Option[AccumulatorV2[_, _]] = {
-    Option(originals.get(id)).map { ref =>
-      // Since we are storing weak references, we must check whether the underlying data is valid.
+    val ref = originals.get(id)
+    if (ref eq null) {
+      None
+    } else {
+      // Since we are storing weak references, warn when the underlying data is not valid.
       val acc = ref.get
       if (acc eq null) {
-        throw new IllegalAccessError(s"Attempted to access garbage collected accumulator $id")
+        logWarning(s"Attempted to access garbage collected accumulator $id")
       }
-      acc
+      Option(acc)
     }
   }
 
@@ -324,33 +281,23 @@ private[spark] object AccumulatorContext {
     originals.clear()
   }
 
-  /**
-   * Looks for a registered accumulator by accumulator name.
-   */
-  private[spark] def lookForAccumulatorByName(name: String): Option[AccumulatorV2[_, _]] = {
-    originals.values().asScala.find { ref =>
-      val acc = ref.get
-      acc != null && acc.name.isDefined && acc.name.get == name
-    }.map(_.get)
-  }
-
   // Identifier for distinguishing SQL metrics from other accumulators
   private[spark] val SQL_ACCUM_IDENTIFIER = "sql"
 }
 
 
 /**
- * An [[AccumulatorV2 accumulator]] for computing sum, count, and averages for 64-bit integers.
+ * An [[AccumulatorV2 accumulator]] for computing sum, count, and average of 64-bit integers.
  *
  * @since 2.0.0
  */
-class LongAccumulator extends AccumulatorV2Kryo[jl.Long, jl.Long]
-    with KryoSerializable {
+class LongAccumulator extends AccumulatorV2[jl.Long, jl.Long] {
   private var _sum = 0L
   private var _count = 0L
 
   /**
-   * Adds v to the accumulator, i.e. increment sum by v and count by 1.
+   * Returns false if this accumulator has had any values added to it or the sum is non-zero.
+   *
    * @since 2.0.0
    */
   override def isZero: Boolean = _sum == 0L && _count == 0
@@ -415,16 +362,6 @@ class LongAccumulator extends AccumulatorV2Kryo[jl.Long, jl.Long]
   private[spark] def setValue(newValue: Long): Unit = _sum = newValue
 
   override def value: jl.Long = _sum
-
-  override def writeKryo(kryo: Kryo, output: Output): Unit = {
-    output.writeLong(_sum)
-    output.writeLong(_count)
-  }
-
-  override def readKryo(kryo: Kryo, input: Input): Unit = {
-    _sum = input.readLong()
-    _count = input.readLong()
-  }
 }
 
 
@@ -434,11 +371,13 @@ class LongAccumulator extends AccumulatorV2Kryo[jl.Long, jl.Long]
  *
  * @since 2.0.0
  */
-class DoubleAccumulator extends AccumulatorV2Kryo[jl.Double, jl.Double]
-    with KryoSerializable {
+class DoubleAccumulator extends AccumulatorV2[jl.Double, jl.Double] {
   private var _sum = 0.0
   private var _count = 0L
 
+  /**
+   * Returns false if this accumulator has had any values added to it or the sum is non-zero.
+   */
   override def isZero: Boolean = _sum == 0.0 && _count == 0
 
   override def copy(): DoubleAccumulator = {
@@ -501,16 +440,6 @@ class DoubleAccumulator extends AccumulatorV2Kryo[jl.Double, jl.Double]
   private[spark] def setValue(newValue: Double): Unit = _sum = newValue
 
   override def value: jl.Double = _sum
-
-  override def writeKryo(kryo: Kryo, output: Output): Unit = {
-    output.writeDouble(_sum)
-    output.writeVarLong(_count, true)
-  }
-
-  override def readKryo(kryo: Kryo, input: Input): Unit = {
-    _sum = input.readDouble()
-    _count = input.readVarLong(true)
-  }
 }
 
 
@@ -519,10 +448,12 @@ class DoubleAccumulator extends AccumulatorV2Kryo[jl.Double, jl.Double]
  *
  * @since 2.0.0
  */
-class CollectionAccumulator[T] extends AccumulatorV2Kryo[T, java.util.List[T]]
-    with KryoSerializable {
+class CollectionAccumulator[T] extends AccumulatorV2[T, java.util.List[T]] {
   private val _list: java.util.List[T] = Collections.synchronizedList(new ArrayList[T]())
 
+  /**
+   * Returns false if this accumulator instance has any values in it.
+   */
   override def isZero: Boolean = _list.isEmpty
 
   override def copyAndReset(): CollectionAccumulator[T] = new CollectionAccumulator
@@ -553,26 +484,6 @@ class CollectionAccumulator[T] extends AccumulatorV2Kryo[T, java.util.List[T]]
     _list.clear()
     _list.addAll(newValue)
   }
-
-  override def writeKryo(kryo: Kryo, output: Output): Unit = {
-    // obtain in one shot for synchronized access
-    val items = _list.toArray
-    output.writeVarInt(items.length, true)
-    var i = 0
-    while (i < items.length) {
-      kryo.writeClassAndObject(output, items(i))
-      i += 1
-    }
-  }
-
-  override def readKryo(kryo: Kryo, input: Input): Unit = {
-    var len = input.readVarInt(true)
-    if (!_list.isEmpty) _list.clear()
-    while (len > 0) {
-      _list.add(kryo.readClassAndObject(input).asInstanceOf[T])
-      len -= 1
-    }
-  }
 }
 
 
@@ -581,7 +492,9 @@ class LegacyAccumulatorWrapper[R, T](
     param: org.apache.spark.AccumulableParam[R, T]) extends AccumulatorV2[T, R] {
   private[spark] var _value = initialValue  // Current value on driver
 
-  override def isZero: Boolean = _value == param.zero(initialValue)
+  @transient private lazy val _zero = param.zero(initialValue)
+
+  override def isZero: Boolean = _value.asInstanceOf[AnyRef].eq(_zero.asInstanceOf[AnyRef])
 
   override def copy(): LegacyAccumulatorWrapper[R, T] = {
     val acc = new LegacyAccumulatorWrapper(initialValue, param)
@@ -590,7 +503,7 @@ class LegacyAccumulatorWrapper[R, T](
   }
 
   override def reset(): Unit = {
-    _value = param.zero(initialValue)
+    _value = _zero
   }
 
   override def add(v: T): Unit = _value = param.addAccumulator(_value, v)

@@ -270,6 +270,8 @@ class DenseVector(Vector):
     DenseVector([3.0, 2.0])
     >>> u % 2
     DenseVector([1.0, 0.0])
+    >>> -v
+    DenseVector([-1.0, -2.0])
     """
     def __init__(self, ar):
         if isinstance(ar, bytes):
@@ -384,14 +386,14 @@ class DenseVector(Vector):
 
     def toArray(self):
         """
-        Returns an numpy.ndarray
+        Returns the underlying numpy.ndarray
         """
         return self.array
 
     @property
     def values(self):
         """
-        Returns a list of values
+        Returns the underlying numpy.ndarray
         """
         return self.array
 
@@ -436,6 +438,9 @@ class DenseVector(Vector):
     def __getattr__(self, item):
         return getattr(self.array, item)
 
+    def __neg__(self):
+        return DenseVector(-self.array)
+
     def _delegate(op):
         def func(self, other):
             if isinstance(other, DenseVector):
@@ -443,7 +448,6 @@ class DenseVector(Vector):
             return DenseVector(getattr(self.array, op)(other))
         return func
 
-    __neg__ = _delegate("__neg__")
     __add__ = _delegate("__add__")
     __sub__ = _delegate("__sub__")
     __mul__ = _delegate("__mul__")
@@ -484,7 +488,7 @@ class SparseVector(Vector):
         >>> SparseVector(4, {1:1.0, 6:2.0})
         Traceback (most recent call last):
         ...
-        AssertionError: Index 6 is out of the the size of vector with size=4
+        AssertionError: Index 6 is out of the size of vector with size=4
         >>> SparseVector(4, {-1:1.0})
         Traceback (most recent call last):
         ...
@@ -524,7 +528,7 @@ class SparseVector(Vector):
 
         if self.indices.size > 0:
             assert np.max(self.indices) < self.size, \
-                "Index %d is out of the the size of vector with size=%d" \
+                "Index %d is out of the size of vector with size=%d" \
                 % (np.max(self.indices), self.size)
             assert np.min(self.indices) >= 0, \
                 "Contains negative index %d" % (np.min(self.indices))
@@ -677,7 +681,7 @@ class SparseVector(Vector):
 
     def toArray(self):
         """
-        Returns a copy of this SparseVector as a 1-dimensional NumPy array.
+        Returns a copy of this SparseVector as a 1-dimensional numpy.ndarray.
         """
         arr = np.zeros((self.size,), dtype=np.float64)
         arr[self.indices] = self.values
@@ -858,7 +862,7 @@ class Matrix(object):
 
     def toArray(self):
         """
-        Returns its elements in a NumPy ndarray.
+        Returns its elements in a numpy.ndarray.
         """
         raise NotImplementedError
 
@@ -933,7 +937,7 @@ class DenseMatrix(Matrix):
 
     def toArray(self):
         """
-        Return an numpy.ndarray
+        Return a numpy.ndarray
 
         >>> m = DenseMatrix(2, 2, range(4))
         >>> m.toArray()
@@ -1117,7 +1121,7 @@ class SparseMatrix(Matrix):
 
     def toArray(self):
         """
-        Return an numpy.ndarray
+        Return a numpy.ndarray
         """
         A = np.zeros((self.numRows, self.numCols), dtype=np.float64, order='F')
         for k in xrange(self.colPtrs.size - 1):
@@ -1156,9 +1160,14 @@ class Matrices(object):
 
 def _test():
     import doctest
+    try:
+        # Numpy 1.14+ changed it's string format.
+        np.set_printoptions(legacy='1.13')
+    except TypeError:
+        pass
     (failure_count, test_count) = doctest.testmod(optionflags=doctest.ELLIPSIS)
     if failure_count:
-        exit(-1)
+        sys.exit(-1)
 
 if __name__ == "__main__":
     _test()

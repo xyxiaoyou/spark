@@ -132,7 +132,7 @@ class WriteAheadLogBackedBlockRDDSuite
 
   /**
    * Test the WriteAheadLogBackedRDD, by writing some partitions of the data to block manager
-   * and the rest to a write ahead log, and then reading reading it all back using the RDD.
+   * and the rest to a write ahead log, and then reading it all back using the RDD.
    * It can also test if the partitions that were read from the log were again stored in
    * block manager.
    *
@@ -250,8 +250,7 @@ class WriteAheadLogBackedBlockRDDSuite
     require(blockData.size === blockIds.size)
     val writer = new FileBasedWriteAheadLogWriter(new File(dir, "logFile").toString, hadoopConf)
     val segments = blockData.zip(blockIds).map { case (data, id) =>
-      writer.write(serializerManager.dataSerialize(id, data.iterator, allowEncryption = false)
-        .toByteBuffer)
+      writer.write(serializerManager.dataSerialize(id, data.iterator).toByteBuffer)
     }
     writer.close()
     segments
