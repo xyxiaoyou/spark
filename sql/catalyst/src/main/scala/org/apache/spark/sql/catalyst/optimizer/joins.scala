@@ -18,12 +18,12 @@
 package org.apache.spark.sql.catalyst.optimizer
 
 import scala.annotation.tailrec
-
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.planning.ExtractFiltersAndInnerJoins
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules._
+import org.apache.spark.sql.internal.SQLConf
 
 /**
  * Reorder the joins and push all the conditions into join, so that the bottom ones have at least
@@ -117,7 +117,8 @@ object EliminateOuterJoin extends Rule[LogicalPlan] with PredicateHelper {
   }
 
   private def buildNewJoinType(filter: Filter, join: Join): JoinType = {
-    val conditions = splitConjunctivePredicates(filter.condition) ++ filter.constraints
+    val conditions = splitConjunctivePredicates(filter.condition) ++
+      filter.getConstraints(SQLConf.get.constraintPropagationEnabled)
 
     val leftConditions = conditions.filter(_.references.subsetOf(join.left.outputSet))
     val rightConditions = conditions.filter(_.references.subsetOf(join.right.outputSet))

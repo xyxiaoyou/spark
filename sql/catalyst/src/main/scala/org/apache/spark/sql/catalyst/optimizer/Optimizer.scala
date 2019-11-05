@@ -20,7 +20,7 @@ package org.apache.spark.sql.catalyst.optimizer
 import scala.collection.mutable
 
 import org.apache.spark.sql.AnalysisException
-import org.apache.spark.sql.catalyst.{CatalystConf, SimpleCatalystConf}
+import org.apache.spark.sql.catalyst.SimpleCatalystConf
 import org.apache.spark.sql.catalyst.analysis._
 import org.apache.spark.sql.catalyst.catalog.{InMemoryCatalog, SessionCatalog}
 import org.apache.spark.sql.catalyst.expressions._
@@ -35,7 +35,7 @@ import org.apache.spark.sql.types._
  * Abstract class all optimizers should inherit of, contains the standard batches (extending
  * Optimizers can override this.
  */
-abstract class Optimizer(sessionCatalog: SessionCatalog, conf: CatalystConf)
+abstract class Optimizer(sessionCatalog: SessionCatalog, conf: SQLConf)
   extends RuleExecutor[LogicalPlan] {
 
   protected val fixedPoint = FixedPoint(conf.optimizerMaxIterations)
@@ -146,8 +146,8 @@ class SimpleTestOptimizer extends Optimizer(
   new SessionCatalog(
     new InMemoryCatalog,
     EmptyFunctionRegistry,
-    new SimpleCatalystConf(caseSensitiveAnalysis = true)),
-  new SimpleCatalystConf(caseSensitiveAnalysis = true))
+    new SimpleSQLConf(caseSensitiveAnalysis = true)),
+  new SimpleSQLConf(caseSensitiveAnalysis = true))
 
 /**
  * Remove redundant aliases from a query plan. A redundant alias is an alias that does not change
@@ -750,7 +750,7 @@ object PruneFilters extends Rule[LogicalPlan] with PredicateHelper {
     case f @ Filter(fc, p: LogicalPlan) =>
       val (prunedPredicates, remainingPredicates) =
         splitConjunctivePredicates(fc).partition { cond =>
-          cond.deterministic && p.constraints.contains(cond)
+          cond.deterministic && p.getConstraints(SQLConf.get.constraintPropagationEnabled).contains(cond)
         }
       if (prunedPredicates.isEmpty) {
         f
@@ -1081,7 +1081,7 @@ object CombineLimits extends Rule[LogicalPlan] {
  * the join between R and S is not a cartesian product and therefore should be allowed.
  * The predicate R.r = S.s is not recognized as a join condition until the ReorderJoin rule.
  */
-case class CheckCartesianProducts(conf: CatalystConf)
+case class CheckCartesianProducts(conf: SQLConf)
     extends Rule[LogicalPlan] with PredicateHelper {
   /**
    * Check if a join is a cartesian product. Returns true if
