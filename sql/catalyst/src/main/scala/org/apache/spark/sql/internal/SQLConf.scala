@@ -29,6 +29,7 @@ import org.apache.spark.sql.catalyst.analysis.Resolver
 import org.apache.spark.sql.internal.SQLConf.{FILES_MAX_PARTITION_BYTES => _, FILES_OPEN_COST_IN_BYTES => _, IGNORE_CORRUPT_FILES => _}
 import org.apache.spark.util.Utils
 import org.apache.spark.{SparkContext, TaskContext}
+import org.slf4j.LoggerFactory
 
 import scala.collection.JavaConverters._
 import scala.collection.immutable
@@ -39,7 +40,7 @@ import scala.collection.immutable
 
 
 object SQLConf {
-
+  val logger = LoggerFactory.getLogger(this.getClass)
   private val sqlConfEntries = java.util.Collections.synchronizedMap(
     new java.util.HashMap[String, ConfigEntry[_]]())
 
@@ -973,6 +974,8 @@ class SQLConf extends Serializable with Logging {
       entry.valueConverter(value)
     }
     setConfWithCheck(key, value)
+    logger.error("---ULNIT---SQLConf->setConfString:{}-{}",
+      key, value)
   }
 
   /** Set the given Spark SQL configuration property. */
