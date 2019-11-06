@@ -22,7 +22,6 @@ import java.util.Properties
 
 import scala.collection.immutable
 import scala.reflect.runtime.universe.TypeTag
-
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.annotation.{DeveloperApi, Experimental, InterfaceStability}
 import org.apache.spark.api.java.{JavaRDD, JavaSparkContext}
@@ -33,11 +32,12 @@ import org.apache.spark.sql.catalyst._
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.execution.command.ShowTablesCommand
-import org.apache.spark.sql.internal.{SessionState, SharedState, SQLConf}
+import org.apache.spark.sql.internal.{SQLConf, SessionState, SharedState}
 import org.apache.spark.sql.sources.BaseRelation
 import org.apache.spark.sql.streaming.{DataStreamReader, StreamingQueryManager}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.ExecutionListenerManager
+import org.slf4j.LoggerFactory
 
 /**
  * The entry point for working with structured data (rows and columns) in Spark 1.x.
@@ -59,14 +59,13 @@ import org.apache.spark.sql.util.ExecutionListenerManager
 @InterfaceStability.Stable
 class SQLContext private[sql](val sparkSession: SparkSession)
   extends Logging with Serializable {
-
   self =>
 
   sparkSession.sparkContext.assertNotStopped()
 
   // Note: Since Spark 2.0 this class has become a wrapper of SparkSession, where the
   // real functionality resides. This class remains mainly for backward compatibility.
-
+  val logger = LoggerFactory.getLogger(this.getClass)
   @deprecated("Use SparkSession.builder instead", "2.0.0")
   def this(sc: SparkContext) = {
     this(SparkSession.builder().sparkContext(sc).getOrCreate())
@@ -114,6 +113,7 @@ class SQLContext private[sql](val sparkSession: SparkSession)
    * Set the given Spark SQL configuration property.
    */
   private[sql] def setConf[T](entry: ConfigEntry[T], value: T): Unit = {
+    logger.error("---ULNIT---SQLContext->setConf:{}-{}",Array(entry.key,value): _*)
     sessionState.conf.setConf(entry, value)
   }
 
