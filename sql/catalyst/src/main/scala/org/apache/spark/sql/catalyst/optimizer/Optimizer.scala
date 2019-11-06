@@ -614,8 +614,8 @@ object InferFiltersFromConstraints extends Rule[LogicalPlan]
   val logger = LoggerFactory.getLogger(this.getClass)
   def apply(plan: LogicalPlan): LogicalPlan = {
     logger.error("---ULNIT---InferFiltersFromConstraints->constraintPropagationEnabled:{}",
-      SQLConf.get.constraintPropagationEnabled)
-    if (SQLConf.get.constraintPropagationEnabled) {
+      SQLConf.get.settings.get(SQLConf.CONSTRAINT_PROPAGATION_ENABLED.key))
+    if (SQLConf.get.settings.get(SQLConf.CONSTRAINT_PROPAGATION_ENABLED.key)) {
       inferFilters(plan)
     } else {
       plan
