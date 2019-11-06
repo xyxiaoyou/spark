@@ -615,7 +615,8 @@ object InferFiltersFromConstraints extends Rule[LogicalPlan]
   def apply(plan: LogicalPlan): LogicalPlan = {
     logger.error("---ULNIT---InferFiltersFromConstraints->constraintPropagationEnabled:{}",
       SQLConf.get.settings.get(SQLConf.CONSTRAINT_PROPAGATION_ENABLED.key))
-    if (SQLConf.get.settings.get(SQLConf.CONSTRAINT_PROPAGATION_ENABLED.key)) {
+    if (SQLConf.get.settings.get(SQLConf.CONSTRAINT_PROPAGATION_ENABLED.key).
+      toLowerCase().equals("true")) {
       inferFilters(plan)
     } else {
       plan
