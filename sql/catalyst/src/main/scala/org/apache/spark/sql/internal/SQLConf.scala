@@ -276,7 +276,7 @@ object SQLConf {
           " expensive for certain kinds of query plans (such as those with a large number of" +
           " predicates and aliases) which might negatively impact overall runtime.")
       .booleanConf
-      .createWithDefault(true)
+      .createWithDefault(false)
 
   val PARQUET_SCHEMA_MERGING_ENABLED = SQLConfigBuilder("spark.sql.parquet.mergeSchema")
     .doc("When true, the Parquet data source merges schemas collected from all data files, " +
