@@ -123,7 +123,7 @@ class SQLContext private[sql](val sparkSession: SparkSession)
    * @since 1.0.0
    */
   def setConf(key: String, value: String): Unit = {
-    logger.error("---ULNIT---SQLContext->setConf:{}-{}", entry.key, value)
+    logger.error("---ULNIT---SQLContext->setConf:{}-{}", Array(key, value): _*)
     sparkSession.conf.set(key, value)
   }
 
