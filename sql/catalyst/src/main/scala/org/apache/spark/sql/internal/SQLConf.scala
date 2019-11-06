@@ -115,7 +115,8 @@ object SQLConf {
     *
     * The first time a SparkSession is instantiated, we set the [[confGetter]] to return the
     * active SparkSession's config. If there is no active SparkSession, it returns using the thread
-    * local [[fallbackConf]]. The reason [[fallbackConf]] is a thread local (rather than just a conf)
+    * local [[fallbackConf]]. The reason [[fallbackConf]]
+    * is a thread local (rather than just a conf)
     * is to support setting different config options for different threads so we can potentially
     * run tests in parallel. At the time this feature was implemented, this was a no-op since we
     * run unit tests (that does not involve SparkSession) in serial order.
@@ -1016,8 +1017,7 @@ class SQLConf extends Serializable with Logging {
    */
   def getConf[T](entry: ConfigEntry[T]): T = {
     require(sqlConfEntries.get(entry.key) == entry, s"$entry is not registered")
-    logger.error("---ULNIT---SQLConf->getConf:{}-{}",
-      Array(entry.key, reader.get(entry.key)): _*)
+    logger.error("---ULNIT---SQLConf->getConf:{}", entry.key)
     entry.readFrom(reader)
   }
 
@@ -1068,6 +1068,7 @@ class SQLConf extends Serializable with Logging {
   }
 
   private def setConfWithCheck(key: String, value: String): Unit = {
+    logger.error("---ULNIT---SQLConf->setConfWithCheck:{}-{}", Array(key, value): _*)
     settings.put(key, value)
   }
 
