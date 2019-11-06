@@ -113,7 +113,7 @@ class SQLContext private[sql](val sparkSession: SparkSession)
    * Set the given Spark SQL configuration property.
    */
   private[sql] def setConf[T](entry: ConfigEntry[T], value: T): Unit = {
-    logger.error("---ULNIT---SQLContext->setConf:{}-{}",Array(entry.key,value): _*)
+    logger.error("---ULNIT---SQLContext->setConf:{}-{}", entry.key, value)
     sessionState.conf.setConf(entry, value)
   }
 
