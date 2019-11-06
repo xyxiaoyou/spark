@@ -92,3 +92,5 @@ spark-warehouse/
 
 # gradle specific
 .gradle/
+/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/optimizer/Optimizer.scala.BASE.scala
+/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/optimizer/Optimizer.scala.BASE.scala
