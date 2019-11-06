@@ -30,6 +30,8 @@ import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules._
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
+import org.slf4j.LoggerFactory
+
 
 /**
  * Abstract class all optimizers should inherit of, contains the standard batches (extending
@@ -609,7 +611,9 @@ object CollapseWindow extends Rule[LogicalPlan] {
  */
 object InferFiltersFromConstraints extends Rule[LogicalPlan]
     with PredicateHelper with ConstraintHelper {
+  val logger = LoggerFactory.getLogger(this.getClass)
   def apply(plan: LogicalPlan): LogicalPlan = {
+    logger.error("---ULNIT:{}", SQLConf.get.constraintPropagationEnabled)
     if (SQLConf.get.constraintPropagationEnabled) {
       inferFilters(plan)
     } else {
