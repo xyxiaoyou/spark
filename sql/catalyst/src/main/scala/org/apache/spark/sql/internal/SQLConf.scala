@@ -966,16 +966,18 @@ class SQLConf extends Serializable with Logging {
 
   /** Set the given Spark SQL configuration property using a `string` value. */
   def setConfString(key: String, value: String): Unit = {
+    logger.error("---ULNIT---SQLConf->setConfString:{}-{}",
+      key, value)
     require(key != null, "key cannot be null")
     require(value != null, s"value cannot be null for key: $key")
     val entry = sqlConfEntries.get(key)
     if (entry != null) {
       // Only verify configs in the SQLConf object
+      logger.error("---ULNIT---SQLConf->sqlConfEntries->get:{}-{}",
+        key, value)
       entry.valueConverter(value)
     }
     setConfWithCheck(key, value)
-    logger.error("---ULNIT---SQLConf->setConfString:{}-{}",
-      key, value)
   }
 
   /** Set the given Spark SQL configuration property. */
