@@ -440,7 +440,8 @@ object SQLConf {
       .intConf
       .createWithDefault(200)
 
-  val THRIFTSERVER_UI_SESSION_LIMIT = SQLConfigBuilder("spark.sql.thriftserver.ui.retainedSessions")
+  val THRIFTSERVER_UI_SESSION_LIMIT =
+    SQLConfigBuilder("spark.sql.thriftserver.ui.retainedSessions")
     .doc("The number of SQL client sessions kept in the JDBC/ODBC web UI history.")
     .intConf
     .createWithDefault(200)
