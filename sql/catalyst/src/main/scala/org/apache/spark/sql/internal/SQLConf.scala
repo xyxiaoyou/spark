@@ -1016,7 +1016,8 @@ class SQLConf extends Serializable with Logging {
    */
   def getConf[T](entry: ConfigEntry[T]): T = {
     require(sqlConfEntries.get(entry.key) == entry, s"$entry is not registered")
-    logger.error("---ULNIT---SQLConf->getConf:{}-{}", entry.key, reader.get(entry.key))
+    logger.error("---ULNIT---SQLConf->getConf:{}-{}",
+      Array(entry.key, reader.get(entry.key)): _*)
     entry.readFrom(reader)
   }
 
