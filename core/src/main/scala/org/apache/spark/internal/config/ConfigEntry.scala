@@ -17,6 +17,8 @@
 
 package org.apache.spark.internal.config
 
+import org.slf4j.LoggerFactory
+
 /**
  * An entry contains all meta information for a configuration.
  *
@@ -70,12 +72,13 @@ private class ConfigEntryWithDefault[T] (
                                           doc: String,
                                           isPublic: Boolean)
   extends ConfigEntry(key, valueConverter, stringConverter, doc, isPublic) {
-
+  val logger = LoggerFactory.getLogger(this.getClass)
   override def defaultValue: Option[T] = Some(_defaultValue)
 
   override def defaultValueString: String = stringConverter(_defaultValue)
 
   def readFrom(reader: ConfigReader): T = {
+    logger.error("---ULNIT---ConfigEntry->readFrom:{}", reader.get(key).map(valueConverter))
     reader.get(key).map(valueConverter).getOrElse(_defaultValue)
   }
 }
