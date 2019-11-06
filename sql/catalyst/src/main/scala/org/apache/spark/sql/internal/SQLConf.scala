@@ -440,8 +440,8 @@ object SQLConf {
       .intConf
       .createWithDefault(200)
 
-  val THRIFTSERVER_U
-    I_SESSION_LIMIT = SQLConfigBuilder("spark.sql.thriftserver.ui.retainedSessions")
+  val THRIFTSERVER_UI_SESSION_LIMIT =
+    SQLConfigBuilder("spark.sql.thriftserver.ui.retainedSessions")
     .doc("The number of SQL client sessions kept in the JDBC/ODBC web UI history.")
     .intConf
     .createWithDefault(200)
@@ -1016,7 +1016,7 @@ class SQLConf extends Serializable with Logging {
    */
   def getConf[T](entry: ConfigEntry[T]): T = {
     require(sqlConfEntries.get(entry.key) == entry, s"$entry is not registered")
-    logger.error("---ULNIT---SQLConf->getConf:{}", reader.get(entry.key))
+    logger.error("---ULNIT---SQLConf->getConf:{}",reader.get(entry.key))
     entry.readFrom(reader)
   }
 
