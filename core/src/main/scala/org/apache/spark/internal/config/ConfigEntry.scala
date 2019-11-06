@@ -78,7 +78,7 @@ private class ConfigEntryWithDefault[T] (
   override def defaultValueString: String = stringConverter(_defaultValue)
 
   def readFrom(reader: ConfigReader): T = {
-    logger.error("---ULNIT---ConfigEntry->readFrom:{}", reader.get(key).map(valueConverter))
+    logger.error("---ULNIT---ConfigEntry->readFrom:{}-{}", key, reader.get(key).map(valueConverter))
     reader.get(key).map(valueConverter).getOrElse(_defaultValue)
   }
 }
