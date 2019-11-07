@@ -75,13 +75,13 @@ abstract class Optimizer(sessionCatalog: SessionCatalog, conf: SQLConf)
     Batch("Operator Optimizations", fixedPoint,
       // Operator push down
       PushProjectionThroughUnion,
-      ReorderJoin,
-      EliminateOuterJoin,
+      ReorderJoin(conf),
+      EliminateOuterJoin(conf),
       PushPredicateThroughJoin,
       PushDownPredicate,
-      LimitPushDown,
+      LimitPushDown(conf),
       ColumnPruning,
-      InferFiltersFromConstraints,
+      InferFiltersFromConstraints(conf),
       // Operator combine
       CollapseRepartition,
       CollapseProject,
@@ -90,7 +90,7 @@ abstract class Optimizer(sessionCatalog: SessionCatalog, conf: SQLConf)
       CombineLimits,
       CombineUnions,
       // Constant folding and strength reduction
-      NullPropagation,
+      NullPropagation(conf),
       FoldablePropagation,
       OptimizeIn(conf),
       ConstantFolding,
@@ -100,7 +100,7 @@ abstract class Optimizer(sessionCatalog: SessionCatalog, conf: SQLConf)
       SimplifyConditionals,
       RemoveDispensableExpressions,
       SimplifyBinaryComparison,
-      PruneFilters,
+      PruneFilters(conf),
       EliminateSorts,
       SimplifyCasts,
       SimplifyCaseConversionExpressions,
@@ -258,7 +258,7 @@ object RemoveRedundantProject extends Rule[LogicalPlan] {
 /**
  * Pushes down [[LocalLimit]] beneath UNION ALL and beneath the streamed inputs of outer joins.
  */
-object LimitPushDown extends Rule[LogicalPlan] {
+case class LimitPushDown(conf: SQLConf) extends Rule[LogicalPlan] {
 
   private def stripGlobalLimitIfPresent(plan: LogicalPlan): LogicalPlan = {
     plan match {
@@ -609,13 +609,13 @@ object CollapseWindow extends Rule[LogicalPlan] {
  * Note: While this optimization is applicable to all types of join, it primarily benefits Inner and
  * LeftSemi joins.
  */
-object InferFiltersFromConstraints extends Rule[LogicalPlan]
+case class InferFiltersFromConstraints(conf: SQLConf) extends Rule[LogicalPlan]
     with PredicateHelper with ConstraintHelper {
   val logger = LoggerFactory.getLogger(this.getClass)
   def apply(plan: LogicalPlan): LogicalPlan = {
     logger.error("---ULNIT---InferFiltersFromConstraints->constraintPropagationEnabled:{}",
-      SQLConf.get.constraintPropagationEnabled)
-    if (SQLConf.get.constraintPropagationEnabled) {
+      conf.constraintPropagationEnabled)
+    if (conf.constraintPropagationEnabled) {
       inferFilters(plan)
     } else {
       plan
@@ -741,7 +741,7 @@ object EliminateSorts extends Rule[LogicalPlan] {
  * 2) by substituting a dummy empty relation when the filter will always evaluate to `false`.
  * 3) by eliminating the always-true conditions given the constraints on the child's output.
  */
-object PruneFilters extends Rule[LogicalPlan] with PredicateHelper {
+case class PruneFilters(conf: SQLConf) extends Rule[LogicalPlan] with PredicateHelper {
   def apply(plan: LogicalPlan): LogicalPlan = plan transform {
     // If the filter condition always evaluate to true, remove the filter.
     case Filter(Literal(true, BooleanType), child) => child
@@ -754,8 +754,7 @@ object PruneFilters extends Rule[LogicalPlan] with PredicateHelper {
     case f @ Filter(fc, p: LogicalPlan) =>
       val (prunedPredicates, remainingPredicates) =
         splitConjunctivePredicates(fc).partition { cond =>
-          cond.deterministic && p.getConstraints(SQLConf.get.constraintPropagationEnabled).
-            contains(cond)
+          cond.deterministic && p.getConstraints(conf.constraintPropagationEnabled).contains(cond)
         }
       if (prunedPredicates.isEmpty) {
         f

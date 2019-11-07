@@ -31,7 +31,7 @@ import org.apache.spark.sql.internal.SQLConf
  *
  * The order of joins will not be changed if all of them already have at least one condition.
  */
-object ReorderJoin extends Rule[LogicalPlan] with PredicateHelper {
+case class ReorderJoin(conf: SQLConf) extends Rule[LogicalPlan] with PredicateHelper {
 
   /**
    * Join a list of plans together and push down the conditions into them.
@@ -42,7 +42,7 @@ object ReorderJoin extends Rule[LogicalPlan] with PredicateHelper {
    * @param conditions a list of condition for join.
    */
   @tailrec
-  def createOrderedJoin(input: Seq[(LogicalPlan, InnerLike)], conditions: Seq[Expression])
+  final def createOrderedJoin(input: Seq[(LogicalPlan, InnerLike)], conditions: Seq[Expression])
     : LogicalPlan = {
     assert(input.size >= 2)
     if (input.size == 2) {
@@ -101,7 +101,7 @@ object ReorderJoin extends Rule[LogicalPlan] with PredicateHelper {
  *
  * This rule should be executed before pushing down the Filter
  */
-object EliminateOuterJoin extends Rule[LogicalPlan] with PredicateHelper {
+case class EliminateOuterJoin(conf: SQLConf) extends Rule[LogicalPlan] with PredicateHelper {
 
   /**
    * Returns whether the expression returns null or false when all inputs are nulls.
@@ -118,7 +118,7 @@ object EliminateOuterJoin extends Rule[LogicalPlan] with PredicateHelper {
 
   private def buildNewJoinType(filter: Filter, join: Join): JoinType = {
     val conditions = splitConjunctivePredicates(filter.condition) ++
-      filter.getConstraints(SQLConf.get.constraintPropagationEnabled)
+      filter.getConstraints(conf.constraintPropagationEnabled)
 
     val leftConditions = conditions.filter(_.references.subsetOf(join.left.outputSet))
     val rightConditions = conditions.filter(_.references.subsetOf(join.right.outputSet))
