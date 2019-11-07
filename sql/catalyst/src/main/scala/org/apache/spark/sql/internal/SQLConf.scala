@@ -968,15 +968,15 @@ class SQLConf extends Serializable with Logging {
 
   /** Set the given Spark SQL configuration property using a `string` value. */
   def setConfString(key: String, value: String): Unit = {
-    logger.error("---ULNIT---SQLConf->setConfString:{}-{}",
-       Array(key, value): _*)
+    // logger.error("---ULNIT---SQLConf->setConfString:{}-{}",
+     //  Array(key, value): _*)
     require(key != null, "key cannot be null")
     require(value != null, s"value cannot be null for key: $key")
     val entry = sqlConfEntries.get(key)
     if (entry != null) {
       // Only verify configs in the SQLConf object
-      logger.error("---ULNIT---SQLConf->sqlConfEntries->get:{}-{}",
-         Array(key, value): _*)
+      // logger.error("---ULNIT---SQLConf->sqlConfEntries->get:{}-{}",
+      //   Array(key, value): _*)
       entry.valueConverter(value)
     }
     setConfWithCheck(key, value)
@@ -1017,7 +1017,7 @@ class SQLConf extends Serializable with Logging {
    */
   def getConf[T](entry: ConfigEntry[T]): T = {
     require(sqlConfEntries.get(entry.key) == entry, s"$entry is not registered")
-    logger.error("---ULNIT---SQLConf->getConf:{}", entry.key)
+    // logger.error("---ULNIT---SQLConf->getConf:{}", entry.key)
     entry.readFrom(reader)
   }
 
@@ -1068,7 +1068,7 @@ class SQLConf extends Serializable with Logging {
   }
 
   private def setConfWithCheck(key: String, value: String): Unit = {
-    logger.error("---ULNIT---SQLConf->setConfWithCheck:{}-{}", Array(key, value): _*)
+    // logger.error("---ULNIT---SQLConf->setConfWithCheck:{}-{}", Array(key, value): _*)
     settings.put(key, value)
   }
 
