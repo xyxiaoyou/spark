@@ -60,6 +60,10 @@ private class ClientEndpoint(
    private val lostMasters = new HashSet[RpcAddress]
    private var activeMasterEndpoint: RpcEndpointRef = null
 
+  private def getProperty(key: String, conf: SparkConf): Option[String] = {
+    sys.props.get(key).orElse(conf.getOption(key))
+  }
+
   override def onStart(): Unit = {
     driverArgs.cmd match {
       case "launch" =>
@@ -69,18 +73,19 @@ private class ClientEndpoint(
         val mainClass = "org.apache.spark.deploy.worker.DriverWrapper"
 
         val classPathConf = "spark.driver.extraClassPath"
-        val classPathEntries = sys.props.get(classPathConf).toSeq.flatMap { cp =>
+        val classPathEntries = getProperty(classPathConf, conf).toSeq.flatMap { cp =>
           cp.split(java.io.File.pathSeparator)
         }
 
         val libraryPathConf = "spark.driver.extraLibraryPath"
-        val libraryPathEntries = sys.props.get(libraryPathConf).toSeq.flatMap { cp =>
+        val libraryPathEntries = getProperty(libraryPathConf, conf).toSeq.flatMap { cp =>
           cp.split(java.io.File.pathSeparator)
         }
 
         val extraJavaOptsConf = "spark.driver.extraJavaOptions"
-        val extraJavaOpts = sys.props.get(extraJavaOptsConf)
+        val extraJavaOpts = getProperty(extraJavaOptsConf, conf)
           .map(Utils.splitCommandString).getOrElse(Seq.empty)
+
         val sparkJavaOpts = Utils.sparkJavaOpts(conf)
         val javaOpts = sparkJavaOpts ++ extraJavaOpts
         val command = new Command(mainClass,
@@ -93,19 +98,19 @@ private class ClientEndpoint(
           driverArgs.cores,
           driverArgs.supervise,
           command)
-        ayncSendToMasterAndForwardReply[SubmitDriverResponse](
+        asyncSendToMasterAndForwardReply[SubmitDriverResponse](
           RequestSubmitDriver(driverDescription))
 
       case "kill" =>
         val driverId = driverArgs.driverId
-        ayncSendToMasterAndForwardReply[KillDriverResponse](RequestKillDriver(driverId))
+        asyncSendToMasterAndForwardReply[KillDriverResponse](RequestKillDriver(driverId))
     }
   }
 
   /**
    * Send the message to master and forward the reply to self asynchronously.
    */
-  private def ayncSendToMasterAndForwardReply[T: ClassTag](message: Any): Unit = {
+  private def asyncSendToMasterAndForwardReply[T: ClassTag](message: Any): Unit = {
     for (masterEndpoint <- masterEndpoints) {
       masterEndpoint.ask[T](message).onComplete {
         case Success(v) => self.send(v)
@@ -123,7 +128,7 @@ private class ClientEndpoint(
     Thread.sleep(5000)
     logInfo("... polling master for driver state")
     val statusResponse =
-      activeMasterEndpoint.askWithRetry[DriverStatusResponse](RequestDriverStatus(driverId))
+      activeMasterEndpoint.askSync[DriverStatusResponse](RequestDriverStatus(driverId))
     if (statusResponse.found) {
       logInfo(s"State of $driverId is ${statusResponse.state.get}")
       // Worker node, if present
@@ -217,8 +222,13 @@ object Client {
       println("Use ./bin/spark-submit with \"--master spark://host:port\"")
     }
     // scalastyle:on println
+    new ClientApp().start(args, new SparkConf())
+  }
+}
 
-    val conf = new SparkConf()
+private[spark] class ClientApp extends SparkApplication {
+
+  override def start(args: Array[String], conf: SparkConf): Unit = {
     val driverArgs = new ClientArguments(args)
 
     if (!conf.contains("spark.rpc.askTimeout")) {
@@ -235,4 +245,5 @@ object Client {
 
     rpcEnv.awaitTermination()
   }
+
 }

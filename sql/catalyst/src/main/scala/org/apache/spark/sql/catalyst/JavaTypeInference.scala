@@ -69,7 +69,8 @@ object JavaTypeInference {
    * @param typeToken Java type
    * @return (SQL data type, nullable)
    */
-  private def inferDataType(typeToken: TypeToken[_]): (DataType, Boolean) = {
+  private def inferDataType(typeToken: TypeToken[_], seenTypeSet: Set[Class[_]] = Set.empty)
+    : (DataType, Boolean) = {
     typeToken.getRawType match {
       case c: Class[_] if c.isAnnotationPresent(classOf[SQLUserDefinedType]) =>
         (c.getAnnotation(classOf[SQLUserDefinedType]).udt().newInstance(), true)
@@ -104,37 +105,51 @@ object JavaTypeInference {
       case c: Class[_] if c == classOf[java.sql.Timestamp] => (TimestampType, true)
 
       case _ if typeToken.isArray =>
-        val (dataType, nullable) = inferDataType(typeToken.getComponentType)
+        val (dataType, nullable) = inferDataType(typeToken.getComponentType, seenTypeSet)
         (ArrayType(dataType, nullable), true)
 
       case _ if iterableType.isAssignableFrom(typeToken) =>
-        val (dataType, nullable) = inferDataType(elementType(typeToken))
+        val (dataType, nullable) = inferDataType(elementType(typeToken), seenTypeSet)
         (ArrayType(dataType, nullable), true)
 
       case _ if mapType.isAssignableFrom(typeToken) =>
         val (keyType, valueType) = mapKeyValueType(typeToken)
-        val (keyDataType, _) = inferDataType(keyType)
-        val (valueDataType, nullable) = inferDataType(valueType)
+        val (keyDataType, _) = inferDataType(keyType, seenTypeSet)
+        val (valueDataType, nullable) = inferDataType(valueType, seenTypeSet)
         (MapType(keyDataType, valueDataType, nullable), true)
 
-      case _ =>
+      case other if other.isEnum =>
+        (StringType, true)
+
+      case other =>
+        if (seenTypeSet.contains(other)) {
+          throw new UnsupportedOperationException(
+            "Cannot have circular references in bean class, but got the circular reference " +
+              s"of class $other")
+        }
+
         // TODO: we should only collect properties that have getter and setter. However, some tests
         // pass in scala case class as java bean class which doesn't have getter and setter.
-        val beanInfo = Introspector.getBeanInfo(typeToken.getRawType)
-        val properties = beanInfo.getPropertyDescriptors.filterNot(_.getName == "class")
+        val properties = getJavaBeanReadableProperties(other)
         val fields = properties.map { property =>
           val returnType = typeToken.method(property.getReadMethod).getReturnType
-          val (dataType, nullable) = inferDataType(returnType)
+          val (dataType, nullable) = inferDataType(returnType, seenTypeSet + other)
           new StructField(property.getName, dataType, nullable)
         }
         (new StructType(fields), true)
     }
   }
 
-  private def getJavaBeanProperties(beanClass: Class[_]): Array[PropertyDescriptor] = {
+  def getJavaBeanReadableProperties(beanClass: Class[_]): Array[PropertyDescriptor] = {
     val beanInfo = Introspector.getBeanInfo(beanClass)
-    beanInfo.getPropertyDescriptors
-      .filter(p => p.getReadMethod != null && p.getWriteMethod != null)
+    beanInfo.getPropertyDescriptors.filterNot(_.getName == "class")
+      .filterNot(_.getName == "declaringClass")
+      .filter(_.getReadMethod != null)
+  }
+
+  private def getJavaBeanReadableAndWritableProperties(
+      beanClass: Class[_]): Array[PropertyDescriptor] = {
+    getJavaBeanReadableProperties(beanClass).filter(_.getWriteMethod != null)
   }
 
   private def elementType(typeToken: TypeToken[_]): TypeToken[_] = {
@@ -193,20 +208,19 @@ object JavaTypeInference {
     typeToken.getRawType match {
       case c if !inferExternalType(c).isInstanceOf[ObjectType] => getPath
 
-      case c if c == classOf[java.lang.Short] =>
-        NewInstance(c, getPath :: Nil, ObjectType(c))
-      case c if c == classOf[java.lang.Integer] =>
-        NewInstance(c, getPath :: Nil, ObjectType(c))
-      case c if c == classOf[java.lang.Long] =>
-        NewInstance(c, getPath :: Nil, ObjectType(c))
-      case c if c == classOf[java.lang.Double] =>
-        NewInstance(c, getPath :: Nil, ObjectType(c))
-      case c if c == classOf[java.lang.Byte] =>
-        NewInstance(c, getPath :: Nil, ObjectType(c))
-      case c if c == classOf[java.lang.Float] =>
-        NewInstance(c, getPath :: Nil, ObjectType(c))
-      case c if c == classOf[java.lang.Boolean] =>
-        NewInstance(c, getPath :: Nil, ObjectType(c))
+      case c if c == classOf[java.lang.Short] ||
+                c == classOf[java.lang.Integer] ||
+                c == classOf[java.lang.Long] ||
+                c == classOf[java.lang.Double] ||
+                c == classOf[java.lang.Float] ||
+                c == classOf[java.lang.Byte] ||
+                c == classOf[java.lang.Boolean] =>
+        StaticInvoke(
+          c,
+          ObjectType(c),
+          "valueOf",
+          getPath :: Nil,
+          returnNullable = false)
 
       case c if c == classOf[java.sql.Date] =>
         StaticInvoke(
@@ -214,7 +228,7 @@ object JavaTypeInference {
           ObjectType(c),
           "toJavaDate",
           getPath :: Nil,
-          propagateNull = true)
+          returnNullable = false)
 
       case c if c == classOf[java.sql.Timestamp] =>
         StaticInvoke(
@@ -222,11 +236,9 @@ object JavaTypeInference {
           ObjectType(c),
           "toJavaTimestamp",
           getPath :: Nil,
-          propagateNull = true)
+          returnNullable = false)
 
       case c if c == classOf[java.lang.String] =>
-        Invoke(getPath, "toString", ObjectType(classOf[String]))
-      case c if c == classOf[UTF8String] =>
         Invoke(getPath, "toString", ObjectType(classOf[String]))
 
       case c if c == classOf[java.math.BigDecimal] =>
@@ -259,16 +271,10 @@ object JavaTypeInference {
 
       case c if listType.isAssignableFrom(typeToken) =>
         val et = elementType(typeToken)
-        val array =
-          Invoke(
-            MapObjects(
-              p => deserializerFor(et, Some(p)),
-              getPath,
-              inferDataType(et)._1),
-            "array",
-            ObjectType(classOf[Array[Any]]))
-
-        StaticInvoke(classOf[java.util.Arrays], ObjectType(c), "asList", array :: Nil)
+        UnresolvedMapObjects(
+          p => deserializerFor(et, Some(p)),
+          getPath,
+          customCollectionCls = Some(c))
 
       case _ if mapType.isAssignableFrom(typeToken) =>
         val (keyType, valueType) = mapKeyValueType(typeToken)
@@ -297,12 +303,19 @@ object JavaTypeInference {
           ArrayBasedMapData.getClass,
           ObjectType(classOf[JMap[_, _]]),
           "toJavaMap",
-          keyData :: valueData :: Nil)
+          keyData :: valueData :: Nil,
+          returnNullable = false)
+
+      case other if other.isEnum =>
+        StaticInvoke(
+          other,
+          ObjectType(other),
+          "valueOf",
+          Invoke(getPath, "toString", ObjectType(classOf[String]), returnNullable = false) :: Nil,
+          returnNullable = false)
 
       case other =>
-        val properties = getJavaBeanProperties(other)
-        assert(properties.length > 0)
-
+        val properties = getJavaBeanReadableAndWritableProperties(other)
         val setters = properties.map { p =>
           val fieldName = p.getName
           val fieldType = typeToken.method(p.getReadMethod).getReturnType
@@ -366,28 +379,32 @@ object JavaTypeInference {
             classOf[UTF8String],
             StringType,
             "fromString",
-            inputObject :: Nil)
+            inputObject :: Nil,
+            returnNullable = false)
 
         case c if c == classOf[java.sql.Timestamp] =>
           StaticInvoke(
             DateTimeUtils.getClass,
             TimestampType,
             "fromJavaTimestamp",
-            inputObject :: Nil)
+            inputObject :: Nil,
+            returnNullable = false)
 
         case c if c == classOf[java.sql.Date] =>
           StaticInvoke(
             DateTimeUtils.getClass,
             DateType,
             "fromJavaDate",
-            inputObject :: Nil)
+            inputObject :: Nil,
+            returnNullable = false)
 
         case c if c == classOf[java.math.BigDecimal] =>
           StaticInvoke(
             Decimal.getClass,
             DecimalType.SYSTEM_DEFAULT,
             "apply",
-            inputObject :: Nil)
+            inputObject :: Nil,
+            returnNullable = false)
 
         case c if c == classOf[java.lang.Boolean] =>
           Invoke(inputObject, "booleanValue", BooleanType)
@@ -403,8 +420,6 @@ object JavaTypeInference {
           Invoke(inputObject, "floatValue", FloatType)
         case c if c == classOf[java.lang.Double] =>
           Invoke(inputObject, "doubleValue", DoubleType)
-        case c if c == classOf[UTF8String] =>
-          Invoke(inputObject, "cloneIfRequired", StringType)
 
         case _ if typeToken.isArray =>
           toCatalystArray(inputObject, typeToken.getComponentType)
@@ -414,33 +429,39 @@ object JavaTypeInference {
 
         case _ if mapType.isAssignableFrom(typeToken) =>
           val (keyType, valueType) = mapKeyValueType(typeToken)
+
           ExternalMapToCatalyst(
             inputObject,
             ObjectType(keyType.getRawType),
             serializerFor(_, keyType),
+            keyNullable = true,
             ObjectType(valueType.getRawType),
-            serializerFor(_, valueType)
+            serializerFor(_, valueType),
+            valueNullable = true
           )
 
-        case other =>
-          val properties = getJavaBeanProperties(other)
-          if (properties.length > 0) {
-            val nonNullOutput = CreateNamedStruct(properties.flatMap { p =>
-              val fieldName = p.getName
-              val fieldType = typeToken.method(p.getReadMethod).getReturnType
-              val fieldValue = Invoke(
-                inputObject,
-                p.getReadMethod.getName,
-                inferExternalType(fieldType.getRawType))
-              expressions.Literal(fieldName) :: serializerFor(fieldValue, fieldType) :: Nil
-            })
+        case other if other.isEnum =>
+          StaticInvoke(
+            classOf[UTF8String],
+            StringType,
+            "fromString",
+            Invoke(inputObject, "name", ObjectType(classOf[String]), returnNullable = false) :: Nil,
+            returnNullable = false)
 
-            val nullOutput = expressions.Literal.create(null, nonNullOutput.dataType)
-            expressions.If(IsNull(inputObject), nullOutput, nonNullOutput)
-          } else {
-            throw new UnsupportedOperationException(
-              s"Cannot infer type for class ${other.getName} because it is not bean-compliant")
-          }
+        case other =>
+          val properties = getJavaBeanReadableAndWritableProperties(other)
+          val nonNullOutput = CreateNamedStruct(properties.flatMap { p =>
+            val fieldName = p.getName
+            val fieldType = typeToken.method(p.getReadMethod).getReturnType
+            val fieldValue = Invoke(
+              inputObject,
+              p.getReadMethod.getName,
+              inferExternalType(fieldType.getRawType))
+            expressions.Literal(fieldName) :: serializerFor(fieldValue, fieldType) :: Nil
+          })
+
+          val nullOutput = expressions.Literal.create(null, nonNullOutput.dataType)
+          expressions.If(IsNull(inputObject), nullOutput, nonNullOutput)
       }
     }
   }

@@ -32,6 +32,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.execution.streaming._
 import org.apache.spark.sql.kafka010.KafkaSource._
+import org.apache.spark.sql.kafka010.KafkaSourceProvider.{INSTRUCTION_FOR_FAIL_ON_DATA_LOSS_FALSE, INSTRUCTION_FOR_FAIL_ON_DATA_LOSS_TRUE}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 
@@ -70,20 +71,20 @@ import org.apache.spark.unsafe.types.UTF8String
  * and not use wrong broker addresses.
  */
 private[kafka010] class KafkaSource(
-                                     sqlContext: SQLContext,
-                                     kafkaReader: KafkaOffsetReader,
-                                     executorKafkaParams: ju.Map[String, Object],
-                                     sourceOptions: Map[String, String],
-                                     metadataPath: String,
-                                     startingOffsets: KafkaOffsetRangeLimit,
-                                     failOnDataLoss: Boolean)
+    sqlContext: SQLContext,
+    kafkaReader: KafkaOffsetReader,
+    executorKafkaParams: ju.Map[String, Object],
+    sourceOptions: Map[String, String],
+    metadataPath: String,
+    startingOffsets: KafkaOffsetRangeLimit,
+    failOnDataLoss: Boolean)
   extends Source with Logging {
 
   private val sc = sqlContext.sparkContext
 
   private val pollTimeoutMs = sourceOptions.getOrElse(
     "kafkaConsumer.pollTimeoutMs",
-    sc.conf.getTimeAsMs("spark.network.timeout", "120s").toString
+    (sc.conf.getTimeAsSeconds("spark.network.timeout", "120s") * 1000L).toString
   ).toLong
 
   private val maxOffsetsPerTrigger =
@@ -129,28 +130,13 @@ private[kafka010] class KafkaSource(
     metadataLog.get(0).getOrElse {
       val offsets = startingOffsets match {
         case EarliestOffsetRangeLimit => KafkaSourceOffset(kafkaReader.fetchEarliestOffsets())
-        case LatestOffsetRangeLimit => KafkaSourceOffset(kafkaReader.fetchLatestOffsets())
-        case SpecificOffsetRangeLimit(p) => fetchAndVerify(p)
+        case LatestOffsetRangeLimit => KafkaSourceOffset(kafkaReader.fetchLatestOffsets(None))
+        case SpecificOffsetRangeLimit(p) => kafkaReader.fetchSpecificOffsets(p, reportDataLoss)
       }
       metadataLog.add(0, offsets)
       logInfo(s"Initial offsets: $offsets")
       offsets
     }.partitionToOffsets
-  }
-
-  private def fetchAndVerify(specificOffsets: Map[TopicPartition, Long]) = {
-    val result = kafkaReader.fetchSpecificOffsets(specificOffsets)
-    specificOffsets.foreach {
-      case (tp, off) if off != KafkaOffsetRangeLimit.LATEST &&
-          off != KafkaOffsetRangeLimit.EARLIEST =>
-        if (result(tp) != off) {
-          reportDataLoss(
-            s"startingOffsets for $tp was $off but consumer reset to ${result(tp)}")
-        }
-      case _ =>
-      // no real way to check that beginning or end is reasonable
-    }
-    KafkaSourceOffset(result)
   }
 
   private var currentPartitionOffsets: Option[Map[TopicPartition, Long]] = None
@@ -162,7 +148,8 @@ private[kafka010] class KafkaSource(
     // Make sure initialPartitionOffsets is initialized
     initialPartitionOffsets
 
-    val latest = kafkaReader.fetchLatestOffsets()
+    val latest = kafkaReader.fetchLatestOffsets(
+      currentPartitionOffsets.orElse(Some(initialPartitionOffsets)))
     val offsets = maxOffsetsPerTrigger match {
       case None =>
         latest
@@ -203,7 +190,15 @@ private[kafka010] class KafkaSource(
             val prorate = limit * (size / total)
             logDebug(s"rateLimit $tp prorated amount is $prorate")
             // Don't completely starve small topicpartitions
-            val off = begin + (if (prorate < 1) Math.ceil(prorate) else Math.floor(prorate)).toLong
+            val prorateLong = (if (prorate < 1) Math.ceil(prorate) else Math.floor(prorate)).toLong
+            // need to be careful of integer overflow
+            // therefore added canary checks where to see if off variable could be overflowed
+            // refer to [https://issues.apache.org/jira/browse/SPARK-26718]
+            val off = if (prorateLong > Long.MaxValue - begin) {
+              Long.MaxValue
+            } else {
+              begin + prorateLong
+            }
             logDebug(s"rateLimit $tp new offset is $off")
             // Paranoia, make sure not to return an offset that's past end
             Math.min(end, off)
@@ -223,6 +218,14 @@ private[kafka010] class KafkaSource(
 
     logInfo(s"GetBatch called with start = $start, end = $end")
     val untilPartitionOffsets = KafkaSourceOffset.getPartitionOffsets(end)
+    // On recovery, getBatch will get called before getOffset
+    if (currentPartitionOffsets.isEmpty) {
+      currentPartitionOffsets = Some(untilPartitionOffsets)
+    }
+    if (start.isDefined && start.get == end) {
+      return sqlContext.internalCreateDataFrame(
+        sqlContext.sparkContext.emptyRDD[InternalRow].setName("empty"), schema, isStreaming = true)
+    }
     val fromPartitionOffsets = start match {
       case Some(prevBatchEndOffset) =>
         KafkaSourceOffset.getPartitionOffsets(prevBatchEndOffset)
@@ -275,7 +278,7 @@ private[kafka010] class KafkaSource(
       val preferredLoc = if (numExecutors > 0) {
         // This allows cached KafkaConsumers in the executors to be re-used to read the same
         // partition in every batch.
-        Some(sortedExecutors(floorMod(tp.hashCode, numExecutors)))
+        Some(sortedExecutors(Math.floorMod(tp.hashCode, numExecutors)))
       } else None
       KafkaSourceRDDOffsetRange(tp, fromOffset, untilOffset, preferredLoc)
     }.filter { range =>
@@ -305,12 +308,7 @@ private[kafka010] class KafkaSource(
     logInfo("GetBatch generating RDD of offset range: " +
       offsetRanges.sortBy(_.topicPartition.toString).mkString(", "))
 
-    // On recovery, getBatch will get called before getOffset
-    if (currentPartitionOffsets.isEmpty) {
-      currentPartitionOffsets = Some(untilPartitionOffsets)
-    }
-
-    sqlContext.internalCreateDataFrame(rdd, schema)
+    sqlContext.internalCreateDataFrame(rdd.setName("kafka"), schema, isStreaming = true)
   }
 
   /** Stop this source and free any resources it has allocated. */
@@ -318,7 +316,7 @@ private[kafka010] class KafkaSource(
     kafkaReader.close()
   }
 
-  override def toString(): String = s"KafkaSource[$kafkaReader]"
+  override def toString(): String = s"KafkaSourceV1[$kafkaReader]"
 
   /**
    * If `failOnDataLoss` is true, this method will throw an `IllegalStateException`.
@@ -335,22 +333,6 @@ private[kafka010] class KafkaSource(
 
 /** Companion object for the [[KafkaSource]]. */
 private[kafka010] object KafkaSource {
-  val INSTRUCTION_FOR_FAIL_ON_DATA_LOSS_FALSE =
-    """
-      |Some data may have been lost because they are not available in Kafka any more; either the
-      | data was aged out by Kafka or the topic may have been deleted before all the data in the
-      | topic was processed. If you want your streaming query to fail on such cases, set the source
-      | option "failOnDataLoss" to "true".
-    """.stripMargin
-
-  val INSTRUCTION_FOR_FAIL_ON_DATA_LOSS_TRUE =
-    """
-      |Some data may have been lost because they are not available in Kafka any more; either the
-      | data was aged out by Kafka or the topic may have been deleted before all the data in the
-      | topic was processed. If you don't want your streaming query to fail on such cases, set the
-      | source option "failOnDataLoss" to "false".
-    """.stripMargin
-
   private[kafka010] val VERSION = 1
 
   def getSortedExecutorList(sc: SparkContext): Array[String] = {
@@ -365,5 +347,4 @@ private[kafka010] object KafkaSource {
     if (a.host == b.host) { a.executorId > b.executorId } else { a.host > b.host }
   }
 
-  def floorMod(a: Long, b: Int): Int = ((a % b).toInt + b) % b
 }

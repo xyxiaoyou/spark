@@ -23,13 +23,14 @@ import org.json4s._
 import org.json4s.JsonDSL._
 import org.json4s.jackson.JsonMethods._
 
+import org.apache.spark.SparkContext
 import org.apache.spark.annotation.Since
 import org.apache.spark.mllib.linalg.{DenseVector, SparseVector, Vector, Vectors}
 import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.mllib.stat.Statistics
+import org.apache.spark.mllib.stat.test.ChiSqTestResult
 import org.apache.spark.mllib.util.{Loader, Saveable}
 import org.apache.spark.rdd.RDD
-import org.apache.spark.SparkContext
 import org.apache.spark.sql.{Row, SparkSession}
 
 /**
@@ -144,7 +145,7 @@ object ChiSqSelectorModel extends Loader[ChiSqSelectorModel] {
       val dataArray = Array.tabulate(model.selectedFeatures.length) { i =>
         Data(model.selectedFeatures(i))
       }
-      spark.createDataFrame(dataArray).repartition(1).write.parquet(Loader.dataPath(path))
+      spark.createDataFrame(sc.makeRDD(dataArray, 1)).write.parquet(Loader.dataPath(path))
     }
 
     def load(sc: SparkContext, path: String): ChiSqSelectorModel = {
@@ -171,11 +172,17 @@ object ChiSqSelectorModel extends Loader[ChiSqSelectorModel] {
 
 /**
  * Creates a ChiSquared feature selector.
- * The selector supports different selection methods: `numTopFeatures`, `percentile`, `fpr`.
+ * The selector supports different selection methods: `numTopFeatures`, `percentile`, `fpr`,
+ * `fdr`, `fwe`.
  *  - `numTopFeatures` chooses a fixed number of top features according to a chi-squared test.
  *  - `percentile` is similar but chooses a fraction of all features instead of a fixed number.
- *  - `fpr` chooses all features whose p-value is below a threshold, thus controlling the false
+ *  - `fpr` chooses all features whose p-values are below a threshold, thus controlling the false
  *    positive rate of selection.
+ *  - `fdr` uses the [Benjamini-Hochberg procedure]
+ *    (https://en.wikipedia.org/wiki/False_discovery_rate#Benjamini.E2.80.93Hochberg_procedure)
+ *    to choose all features whose false discovery rate is below a threshold.
+ *  - `fwe` chooses all features whose p-values are below a threshold. The threshold is scaled by
+ *    1/numFeatures, thus controlling the family-wise error rate of selection.
  * By default, the selection method is `numTopFeatures`, with the default number of top features
  * set to 50.
  */
@@ -184,6 +191,8 @@ class ChiSqSelector @Since("2.1.0") () extends Serializable {
   var numTopFeatures: Int = 50
   var percentile: Double = 0.1
   var fpr: Double = 0.05
+  var fdr: Double = 0.05
+  var fwe: Double = 0.05
   var selectorType = ChiSqSelector.NumTopFeatures
 
   /**
@@ -212,6 +221,20 @@ class ChiSqSelector @Since("2.1.0") () extends Serializable {
   def setFpr(value: Double): this.type = {
     require(0.0 <= value && value <= 1.0, "FPR must be in [0,1]")
     fpr = value
+    this
+  }
+
+  @Since("2.2.0")
+  def setFdr(value: Double): this.type = {
+    require(0.0 <= value && value <= 1.0, "FDR must be in [0,1]")
+    fdr = value
+    this
+  }
+
+  @Since("2.2.0")
+  def setFwe(value: Double): this.type = {
+    require(0.0 <= value && value <= 1.0, "FWE must be in [0,1]")
+    fwe = value
     this
   }
 
@@ -245,6 +268,24 @@ class ChiSqSelector @Since("2.1.0") () extends Serializable {
       case ChiSqSelector.FPR =>
         chiSqTestResult
           .filter { case (res, _) => res.pValue < fpr }
+      case ChiSqSelector.FDR =>
+        // This uses the Benjamini-Hochberg procedure.
+        // https://en.wikipedia.org/wiki/False_discovery_rate#Benjamini.E2.80.93Hochberg_procedure
+        val tempRes = chiSqTestResult
+          .sortBy { case (res, _) => res.pValue }
+        val selected = tempRes
+          .zipWithIndex
+          .filter { case ((res, _), index) =>
+            res.pValue <= fdr * (index + 1) / chiSqTestResult.length }
+        if (selected.isEmpty) {
+          Array.empty[(ChiSqTestResult, Int)]
+        } else {
+          val maxIndex = selected.map(_._2).max
+          tempRes.take(maxIndex + 1)
+        }
+      case ChiSqSelector.FWE =>
+        chiSqTestResult
+          .filter { case (res, _) => res.pValue < fwe / chiSqTestResult.length }
       case errorType =>
         throw new IllegalStateException(s"Unknown ChiSqSelector Type: $errorType")
     }
@@ -255,19 +296,22 @@ class ChiSqSelector @Since("2.1.0") () extends Serializable {
 
 private[spark] object ChiSqSelector {
 
-  /**
-   * String name for `numTopFeatures` selector type.
-   */
-  val NumTopFeatures: String = "numTopFeatures"
+  /** String name for `numTopFeatures` selector type. */
+  private[spark] val NumTopFeatures: String = "numTopFeatures"
 
-  /**
-   * String name for `percentile` selector type.
-   */
-  val Percentile: String = "percentile"
+  /** String name for `percentile` selector type. */
+  private[spark] val Percentile: String = "percentile"
 
   /** String name for `fpr` selector type. */
-  val FPR: String = "fpr"
+  private[spark] val FPR: String = "fpr"
+
+  /** String name for `fdr` selector type. */
+  private[spark] val FDR: String = "fdr"
+
+  /** String name for `fwe` selector type. */
+  private[spark] val FWE: String = "fwe"
+
 
   /** Set of selector types that ChiSqSelector supports. */
-  val supportedSelectorTypes: Array[String] = Array(NumTopFeatures, Percentile, FPR)
+  val supportedSelectorTypes: Array[String] = Array(NumTopFeatures, Percentile, FPR, FDR, FWE)
 }

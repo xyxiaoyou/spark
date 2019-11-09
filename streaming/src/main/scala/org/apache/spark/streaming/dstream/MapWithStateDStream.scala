@@ -121,11 +121,11 @@ class InternalMapWithStateDStream[K: ClassTag, V: ClassTag, S: ClassTag, E: Clas
   override val mustCheckpoint = true
 
   /** Override the default checkpoint duration */
-  override def initialize(time: Time, skipInitialized: Boolean): Unit = {
+  override def initialize(time: Time): Unit = {
     if (checkpointDuration == null) {
       checkpointDuration = slideDuration * DEFAULT_CHECKPOINT_DURATION_MULTIPLIER
     }
-    super.initialize(time, skipInitialized)
+    super.initialize(time)
   }
 
   /** Method that generates an RDD for the given time */

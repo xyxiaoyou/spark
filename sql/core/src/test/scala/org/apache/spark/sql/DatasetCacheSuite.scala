@@ -17,13 +17,27 @@
 
 package org.apache.spark.sql
 
+import org.scalatest.concurrent.TimeLimits
+import org.scalatest.time.SpanSugar._
+
+import org.apache.spark.sql.execution.columnar.{InMemoryRelation, InMemoryTableScanExec}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.test.SharedSQLContext
 import org.apache.spark.storage.StorageLevel
 
 
-class DatasetCacheSuite extends QueryTest with SharedSQLContext {
+class DatasetCacheSuite extends QueryTest with SharedSQLContext with TimeLimits {
   import testImplicits._
+
+  /**
+   * Asserts that a cached [[Dataset]] will be built using the given number of other cached results.
+   */
+  private def assertCacheDependency(df: DataFrame, numOfCachesDependedUpon: Int = 1): Unit = {
+    val plan = df.queryExecution.withCachedData
+    assert(plan.isInstanceOf[InMemoryRelation])
+    val internalPlan = plan.asInstanceOf[InMemoryRelation].cacheBuilder.cachedPlan
+    assert(internalPlan.find(_.isInstanceOf[InMemoryTableScanExec]).size == numOfCachesDependedUpon)
+  }
 
   test("get storage level") {
     val ds1 = Seq("1", "2").toDS().as("a")
@@ -95,5 +109,141 @@ class DatasetCacheSuite extends QueryTest with SharedSQLContext {
     assert(ds.storageLevel == StorageLevel.NONE, "The Dataset ds should not be cached.")
     agged.unpersist()
     assert(agged.storageLevel == StorageLevel.NONE, "The Dataset agged should not be cached.")
+  }
+
+  test("persist and then withColumn") {
+    val df = Seq(("test", 1)).toDF("s", "i")
+    val df2 = df.withColumn("newColumn", lit(1))
+
+    df.cache()
+    assertCached(df)
+    assertCached(df2)
+
+    df.count()
+    assertCached(df2)
+
+    df.unpersist()
+    assert(df.storageLevel == StorageLevel.NONE)
+  }
+
+  test("cache UDF result correctly") {
+    val expensiveUDF = udf({x: Int => Thread.sleep(5000); x})
+    val df = spark.range(0, 10).toDF("a").withColumn("b", expensiveUDF($"a"))
+    val df2 = df.agg(sum(df("b")))
+
+    df.cache()
+    df.count()
+    assertCached(df2)
+
+    // udf has been evaluated during caching, and thus should not be re-evaluated here
+    failAfter(3 seconds) {
+      df2.collect()
+    }
+
+    df.unpersist()
+    assert(df.storageLevel == StorageLevel.NONE)
+  }
+
+  test("SPARK-24613 Cache with UDF could not be matched with subsequent dependent caches") {
+    val udf1 = udf({x: Int => x + 1})
+    val df = spark.range(0, 10).toDF("a").withColumn("b", udf1($"a"))
+    val df2 = df.agg(sum(df("b")))
+
+    df.cache()
+    df.count()
+    df2.cache()
+
+    assertCacheDependency(df2)
+  }
+
+  test("SPARK-24596 Non-cascading Cache Invalidation") {
+    val df = Seq(("a", 1), ("b", 2)).toDF("s", "i")
+    val df2 = df.filter('i > 1)
+    val df3 = df.filter('i < 2)
+
+    df2.cache()
+    df.cache()
+    df.count()
+    df3.cache()
+
+    df.unpersist()
+
+    // df un-cached; df2 and df3's cache plan re-compiled
+    assert(df.storageLevel == StorageLevel.NONE)
+    assertCacheDependency(df2, 0)
+    assertCacheDependency(df3, 0)
+  }
+
+  test("SPARK-24596 Non-cascading Cache Invalidation - verify cached data reuse") {
+    val expensiveUDF = udf({ x: Int => Thread.sleep(5000); x })
+    val df = spark.range(0, 5).toDF("a")
+    val df1 = df.withColumn("b", expensiveUDF($"a"))
+    val df2 = df1.groupBy('a).agg(sum('b))
+    val df3 = df.agg(sum('a))
+
+    df1.cache()
+    df2.cache()
+    df2.collect()
+    df3.cache()
+
+    assertCacheDependency(df2)
+
+    df1.unpersist(blocking = true)
+
+    // df1 un-cached; df2's cache plan stays the same
+    assert(df1.storageLevel == StorageLevel.NONE)
+    assertCacheDependency(df1.groupBy('a).agg(sum('b)))
+
+    val df4 = df1.groupBy('a).agg(sum('b)).agg(sum("sum(b)"))
+    assertCached(df4)
+    // reuse loaded cache
+    failAfter(3 seconds) {
+      checkDataset(df4, Row(10))
+    }
+
+    val df5 = df.agg(sum('a)).filter($"sum(a)" > 1)
+    assertCached(df5)
+    // first time use, load cache
+    checkDataset(df5, Row(10))
+  }
+
+  test("SPARK-26708 Cache data and cached plan should stay consistent") {
+    val df = spark.range(0, 5).toDF("a")
+    val df1 = df.withColumn("b", 'a + 1)
+    val df2 = df.filter('a > 1)
+
+    df.cache()
+    // Add df1 to the CacheManager; the buffer is currently empty.
+    df1.cache()
+    // After calling collect(), df1's buffer has been loaded.
+    df1.collect()
+    // Add df2 to the CacheManager; the buffer is currently empty.
+    df2.cache()
+
+    // Verify that df1 is a InMemoryRelation plan with dependency on another cached plan.
+    assertCacheDependency(df1)
+    val df1InnerPlan = df1.queryExecution.withCachedData
+      .asInstanceOf[InMemoryRelation].cacheBuilder.cachedPlan
+    // Verify that df2 is a InMemoryRelation plan with dependency on another cached plan.
+    assertCacheDependency(df2)
+
+    df.unpersist(blocking = true)
+
+    // Verify that df1's cache has stayed the same, since df1's cache already has data
+    // before df.unpersist().
+    val df1Limit = df1.limit(2)
+    val df1LimitInnerPlan = df1Limit.queryExecution.withCachedData.collectFirst {
+      case i: InMemoryRelation => i.cacheBuilder.cachedPlan
+    }
+    assert(df1LimitInnerPlan.isDefined && df1LimitInnerPlan.get == df1InnerPlan)
+
+    // Verify that df2's cache has been re-cached, with a new physical plan rid of dependency
+    // on df, since df2's cache had not been loaded before df.unpersist().
+    val df2Limit = df2.limit(2)
+    val df2LimitInnerPlan = df2Limit.queryExecution.withCachedData.collectFirst {
+      case i: InMemoryRelation => i.cacheBuilder.cachedPlan
+    }
+    assert(df2LimitInnerPlan.isDefined &&
+      df2LimitInnerPlan.get.find(_.isInstanceOf[InMemoryTableScanExec]).isEmpty)
   }
 }

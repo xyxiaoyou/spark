@@ -21,15 +21,14 @@ import scala.collection.mutable.HashSet
 import scala.concurrent.duration._
 import scala.language.postfixOps
 
-import org.scalatest.concurrent.Eventually._
-
 import org.apache.spark.CleanerListener
+import org.apache.spark.scheduler.{SparkListener, SparkListenerJobStart}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.expressions.SubqueryExpression
-import org.apache.spark.sql.execution.RDDScanExec
+import org.apache.spark.sql.execution.{RDDScanExec, SparkPlan}
 import org.apache.spark.sql.execution.columnar._
-import org.apache.spark.sql.execution.exchange.ShuffleExchange
-import org.apache.spark.sql.functions._
+import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.{SharedSQLContext, SQLTestUtils}
 import org.apache.spark.storage.{RDDBlockId, StorageLevel}
 import org.apache.spark.util.{AccumulatorContext, Utils}
@@ -53,7 +52,7 @@ class CachedTableSuite extends QueryTest with SQLTestUtils with SharedSQLContext
     val plan = spark.table(tableName).queryExecution.sparkPlan
     plan.collect {
       case InMemoryTableScanExec(_, _, relation) =>
-        relation.cachedColumnBuffers.id
+        relation.cacheBuilder.cachedColumnBuffers.id
       case _ =>
         fail(s"Table $tableName is not cached\n" + plan)
     }.head
@@ -76,23 +75,11 @@ class CachedTableSuite extends QueryTest with SQLTestUtils with SharedSQLContext
     sum
   }
 
-  test("withColumn doesn't invalidate cached dataframe") {
-    var evalCount = 0
-    val myUDF = udf((x: String) => { evalCount += 1; "result" })
-    val df = Seq(("test", 1)).toDF("s", "i").select(myUDF($"s"))
-    df.cache()
-
-    df.collect()
-    assert(evalCount === 1)
-
-    df.collect()
-    assert(evalCount === 1)
-
-    val df2 = df.withColumn("newColumn", lit(1))
-    df2.collect()
-
-    // We should not reevaluate the cached dataframe
-    assert(evalCount === 1)
+  private def getNumInMemoryTablesRecursively(plan: SparkPlan): Int = {
+    plan.collect {
+      case InMemoryTableScanExec(_, _, relation) =>
+        getNumInMemoryTablesRecursively(relation.cachedPlan) + 1
+    }.sum
   }
 
   test("cache temp table") {
@@ -194,7 +181,7 @@ class CachedTableSuite extends QueryTest with SQLTestUtils with SharedSQLContext
     spark.catalog.cacheTable("testData")
     assertResult(0, "Double InMemoryRelations found, cacheTable() is not idempotent") {
       spark.table("testData").queryExecution.withCachedData.collect {
-        case r @ InMemoryRelation(_, _, _, _, _: InMemoryTableScanExec, _) => r
+        case r: InMemoryRelation if r.cachedPlan.isInstanceOf[InMemoryTableScanExec] => r
       }.size
     }
 
@@ -306,7 +293,7 @@ class CachedTableSuite extends QueryTest with SQLTestUtils with SharedSQLContext
     spark.table("testData").queryExecution.withCachedData.collect {
       case cached: InMemoryRelation =>
         val actualSizeInBytes = (1 to 100).map(i => 4 + i.toString.length + 4).sum
-        assert(cached.statistics.sizeInBytes === actualSizeInBytes)
+        assert(cached.stats.sizeInBytes === actualSizeInBytes)
     }
   }
 
@@ -361,12 +348,12 @@ class CachedTableSuite extends QueryTest with SQLTestUtils with SharedSQLContext
     val toBeCleanedAccIds = new HashSet[Long]
 
     val accId1 = spark.table("t1").queryExecution.withCachedData.collect {
-      case i: InMemoryRelation => i.batchStats.id
+      case i: InMemoryRelation => i.cacheBuilder.sizeInBytesStats.id
     }.head
     toBeCleanedAccIds += accId1
 
     val accId2 = spark.table("t1").queryExecution.withCachedData.collect {
-      case i: InMemoryRelation => i.batchStats.id
+      case i: InMemoryRelation => i.cacheBuilder.sizeInBytesStats.id
     }.head
     toBeCleanedAccIds += accId2
 
@@ -413,7 +400,8 @@ class CachedTableSuite extends QueryTest with SQLTestUtils with SharedSQLContext
    * Verifies that the plan for `df` contains `expected` number of Exchange operators.
    */
   private def verifyNumExchanges(df: DataFrame, expected: Int): Unit = {
-    assert(df.queryExecution.executedPlan.collect { case e: ShuffleExchange => e }.size == expected)
+    assert(
+      df.queryExecution.executedPlan.collect { case e: ShuffleExchangeExec => e }.size == expected)
   }
 
   test("A cached table preserves the partitioning and ordering of its cached SparkPlan") {
@@ -515,8 +503,7 @@ class CachedTableSuite extends QueryTest with SQLTestUtils with SharedSQLContext
       spark.catalog.cacheTable("t2")
 
       val query = sql("SELECT key, value, a, b FROM t1 t1 JOIN t2 t2 ON t1.key = t2.a")
-      // SNAP: expect 1 exchanges here instead of 2 due to changes for SNAP-1251
-      verifyNumExchanges(query, 1)
+      verifyNumExchanges(query, 2)
       checkAnswer(
         query,
         testData.join(testData2, $"key" === $"a").select($"key", $"value", $"a", $"b"))
@@ -614,18 +601,18 @@ class CachedTableSuite extends QueryTest with SQLTestUtils with SharedSQLContext
       // Nested predicate subquery
       val ds =
         sql(
-          """
-            |SELECT * FROM t1
-            |WHERE
-            |c1 IN (SELECT c1 FROM t2 WHERE c1 IN (SELECT c1 FROM t3 WHERE c1 = 1))
-          """.stripMargin)
+        """
+          |SELECT * FROM t1
+          |WHERE
+          |c1 IN (SELECT c1 FROM t2 WHERE c1 IN (SELECT c1 FROM t3 WHERE c1 = 1))
+        """.stripMargin)
       assert(getNumInMemoryRelations(ds) == 3)
 
       // Scalar subquery and predicate subquery
       val ds2 =
         sql(
           """
-            |SELECT * FROM (SELECT max(c1) FROM t1 GROUP BY c1)
+            |SELECT * FROM (SELECT c1, max(c1) FROM t1 GROUP BY c1)
             |WHERE
             |c1 = (SELECT max(c1) FROM t2 GROUP BY c1)
             |OR
@@ -641,7 +628,7 @@ class CachedTableSuite extends QueryTest with SQLTestUtils with SharedSQLContext
     withTable("t") {
       withTempPath { path =>
         Seq(1 -> "a").toDF("i", "j").write.parquet(path.getCanonicalPath)
-        sql(s"CREATE TABLE t USING parquet OPTIONS (PATH '${path.toURI}')")
+        sql(s"CREATE TABLE t USING parquet LOCATION '${path.toURI}'")
         spark.catalog.cacheTable("t")
         spark.table("t").select($"i").cache()
         checkAnswer(spark.table("t").select($"i"), Row(1))
@@ -669,6 +656,213 @@ class CachedTableSuite extends QueryTest with SQLTestUtils with SharedSQLContext
       spark.catalog.refreshByPath(path)
       assert(spark.read.parquet(path).count() == 20)
       assert(spark.read.parquet(path).filter($"id" > 4).count() == 15)
+    }
+  }
+
+  test("SPARK-19993 simple subquery caching") {
+    withTempView("t1", "t2") {
+      Seq(1).toDF("c1").createOrReplaceTempView("t1")
+      Seq(2).toDF("c1").createOrReplaceTempView("t2")
+
+      val sql1 =
+        """
+          |SELECT * FROM t1
+          |WHERE
+          |NOT EXISTS (SELECT * FROM t2)
+        """.stripMargin
+      sql(sql1).cache()
+
+      val cachedDs = sql(sql1)
+      assert(getNumInMemoryRelations(cachedDs) == 1)
+
+      // Additional predicate in the subquery plan should cause a cache miss
+      val cachedMissDs =
+      sql(
+        """
+          |SELECT * FROM t1
+          |WHERE
+          |NOT EXISTS (SELECT * FROM t2 where c1 = 0)
+        """.stripMargin)
+      assert(getNumInMemoryRelations(cachedMissDs) == 0)
+    }
+  }
+
+  test("SPARK-19993 subquery caching with correlated predicates") {
+    withTempView("t1", "t2") {
+      Seq(1).toDF("c1").createOrReplaceTempView("t1")
+      Seq(1).toDF("c1").createOrReplaceTempView("t2")
+
+      // Simple correlated predicate in subquery
+      val sqlText =
+        """
+          |SELECT * FROM t1
+          |WHERE
+          |t1.c1 in (SELECT t2.c1 FROM t2 where t1.c1 = t2.c1)
+        """.stripMargin
+      sql(sqlText).cache()
+
+      val cachedDs = sql(sqlText)
+      assert(getNumInMemoryRelations(cachedDs) == 1)
+    }
+  }
+
+  test("SPARK-19993 subquery with cached underlying relation") {
+    withTempView("t1") {
+      Seq(1).toDF("c1").createOrReplaceTempView("t1")
+      spark.catalog.cacheTable("t1")
+
+      // underlying table t1 is cached as well as the query that refers to it.
+      val sqlText =
+        """
+          |SELECT * FROM t1
+          |WHERE
+          |NOT EXISTS (SELECT * FROM t1)
+        """.stripMargin
+      val ds = sql(sqlText)
+      assert(getNumInMemoryRelations(ds) == 2)
+
+      val cachedDs = sql(sqlText).cache()
+      assert(getNumInMemoryTablesRecursively(cachedDs.queryExecution.sparkPlan) == 3)
+    }
+  }
+
+  test("SPARK-19993 nested subquery caching and scalar + predicate subqueris") {
+    withTempView("t1", "t2", "t3", "t4") {
+      Seq(1).toDF("c1").createOrReplaceTempView("t1")
+      Seq(2).toDF("c1").createOrReplaceTempView("t2")
+      Seq(1).toDF("c1").createOrReplaceTempView("t3")
+      Seq(1).toDF("c1").createOrReplaceTempView("t4")
+
+      // Nested predicate subquery
+      val sql1 =
+        """
+          |SELECT * FROM t1
+          |WHERE
+          |c1 IN (SELECT c1 FROM t2 WHERE c1 IN (SELECT c1 FROM t3 WHERE c1 = 1))
+        """.stripMargin
+      sql(sql1).cache()
+
+      val cachedDs = sql(sql1)
+      assert(getNumInMemoryRelations(cachedDs) == 1)
+
+      // Scalar subquery and predicate subquery
+      val sql2 =
+        """
+          |SELECT * FROM (SELECT c1, max(c1) FROM t1 GROUP BY c1)
+          |WHERE
+          |c1 = (SELECT max(c1) FROM t2 GROUP BY c1)
+          |OR
+          |EXISTS (SELECT c1 FROM t3)
+          |OR
+          |c1 IN (SELECT c1 FROM t4)
+        """.stripMargin
+      sql(sql2).cache()
+
+      val cachedDs2 = sql(sql2)
+      assert(getNumInMemoryRelations(cachedDs2) == 1)
+    }
+  }
+
+  test("SPARK-23312: vectorized cache reader can be disabled") {
+    Seq(true, false).foreach { vectorized =>
+      withSQLConf(SQLConf.CACHE_VECTORIZED_READER_ENABLED.key -> vectorized.toString) {
+        val df = spark.range(10).cache()
+        df.queryExecution.executedPlan.foreach {
+          case i: InMemoryTableScanExec =>
+            assert(i.supportsBatch == vectorized && i.supportCodegen == vectorized)
+          case _ =>
+        }
+      }
+    }
+  }
+
+  private def checkIfNoJobTriggered[T](f: => T): T = {
+    var numJobTrigered = 0
+    val jobListener = new SparkListener {
+      override def onJobStart(jobStart: SparkListenerJobStart): Unit = {
+        numJobTrigered += 1
+      }
+    }
+    sparkContext.addSparkListener(jobListener)
+    try {
+      val result = f
+      sparkContext.listenerBus.waitUntilEmpty(10000L)
+      assert(numJobTrigered === 0)
+      result
+    } finally {
+      sparkContext.removeSparkListener(jobListener)
+    }
+  }
+
+  test("SPARK-23880 table cache should be lazy and don't trigger any jobs") {
+    val cachedData = checkIfNoJobTriggered {
+      spark.range(1002).filter('id > 1000).orderBy('id.desc).cache()
+    }
+    assert(cachedData.collect === Seq(1001))
+  }
+
+  test("SPARK-24596 Non-cascading Cache Invalidation - uncache temporary view") {
+    withTempView("t1", "t2") {
+      sql("CACHE TABLE t1 AS SELECT * FROM testData WHERE key > 1")
+      sql("CACHE TABLE t2 as SELECT * FROM t1 WHERE value > 1")
+
+      assert(spark.catalog.isCached("t1"))
+      assert(spark.catalog.isCached("t2"))
+      sql("UNCACHE TABLE t1")
+      assert(!spark.catalog.isCached("t1"))
+      assert(spark.catalog.isCached("t2"))
+    }
+  }
+
+  test("SPARK-24596 Non-cascading Cache Invalidation - drop temporary view") {
+    withTempView("t1", "t2") {
+      sql("CACHE TABLE t1 AS SELECT * FROM testData WHERE key > 1")
+      sql("CACHE TABLE t2 as SELECT * FROM t1 WHERE value > 1")
+
+      assert(spark.catalog.isCached("t1"))
+      assert(spark.catalog.isCached("t2"))
+      sql("DROP VIEW t1")
+      assert(spark.catalog.isCached("t2"))
+    }
+  }
+
+  test("SPARK-24596 Non-cascading Cache Invalidation - drop persistent view") {
+    withTable("t") {
+      spark.range(1, 10).toDF("key").withColumn("value", 'key * 2)
+        .write.format("json").saveAsTable("t")
+      withView("t1") {
+        withTempView("t2") {
+          sql("CREATE VIEW t1 AS SELECT * FROM t WHERE key > 1")
+
+          sql("CACHE TABLE t1")
+          sql("CACHE TABLE t2 AS SELECT * FROM t1 WHERE value > 1")
+
+          assert(spark.catalog.isCached("t1"))
+          assert(spark.catalog.isCached("t2"))
+          sql("DROP VIEW t1")
+          assert(!spark.catalog.isCached("t2"))
+        }
+      }
+    }
+  }
+
+  test("SPARK-24596 Non-cascading Cache Invalidation - uncache table") {
+    withTable("t") {
+      spark.range(1, 10).toDF("key").withColumn("value", 'key * 2)
+        .write.format("json").saveAsTable("t")
+      withTempView("t1", "t2") {
+        sql("CACHE TABLE t")
+        sql("CACHE TABLE t1 AS SELECT * FROM t WHERE key > 1")
+        sql("CACHE TABLE t2 AS SELECT * FROM t1 WHERE value > 1")
+
+        assert(spark.catalog.isCached("t"))
+        assert(spark.catalog.isCached("t1"))
+        assert(spark.catalog.isCached("t2"))
+        sql("UNCACHE TABLE t")
+        assert(!spark.catalog.isCached("t"))
+        assert(!spark.catalog.isCached("t1"))
+        assert(!spark.catalog.isCached("t2"))
+      }
     }
   }
 }

@@ -17,23 +17,13 @@
 
 package org.apache.spark.sql
 
-import java.util.{ArrayDeque, Locale, TimeZone}
+import java.util.{Locale, TimeZone}
 
 import scala.collection.JavaConverters._
-import scala.util.control.NonFatal
 
-import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.aggregate.ImperativeAggregate
 import org.apache.spark.sql.catalyst.plans._
-import org.apache.spark.sql.catalyst.plans.logical._
-import org.apache.spark.sql.catalyst.trees.TreeNode
 import org.apache.spark.sql.catalyst.util._
-import org.apache.spark.sql.execution._
-import org.apache.spark.sql.execution.aggregate.TypedAggregateExpression
 import org.apache.spark.sql.execution.columnar.InMemoryRelation
-import org.apache.spark.sql.execution.datasources.LogicalRelation
-import org.apache.spark.sql.execution.streaming.MemoryPlan
-import org.apache.spark.sql.types.{Decimal, Metadata, ObjectType}
 
 
 abstract class QueryTest extends PlanTest {
@@ -297,18 +287,59 @@ object QueryTest {
 
   // We need to call prepareRow recursively to handle schemas with struct types.
   def prepareRow(row: Row): Row = {
-    def prepareValue(v: Any): Any = v match {
+    Row.fromSeq(row.toSeq.map {
       case null => null
       case d: java.math.BigDecimal => BigDecimal(d)
-      case d: Decimal => d.toBigDecimal // to use BigDecimal.compareTo == 0
-      case d: Double => math.floor(d * 1000.0 + 0.5) / 1000.0 // round to three digits
+      // Equality of WrappedArray differs for AnyVal and AnyRef in Scala 2.12.2+
+      case seq: Seq[_] => seq.map {
+        case b: java.lang.Byte => b.byteValue
+        case s: java.lang.Short => s.shortValue
+        case i: java.lang.Integer => i.intValue
+        case l: java.lang.Long => l.longValue
+        case f: java.lang.Float => f.floatValue
+        case d: java.lang.Double => d.doubleValue
+        case x => x
+      }
       // Convert array to Seq for easy equality check.
       case b: Array[_] => b.toSeq
       case r: Row => prepareRow(r)
-      case m: Map[_, _] => m.mapValues(prepareValue)
       case o => o
+    })
+  }
+
+  private def genError(
+      expectedAnswer: Seq[Row],
+      sparkAnswer: Seq[Row],
+      isSorted: Boolean = false): String = {
+    val getRowType: Option[Row] => String = row =>
+      row.map(row =>
+        if (row.schema == null) {
+          "struct<>"
+        } else {
+          s"${row.schema.catalogString}"
+        }).getOrElse("struct<>")
+
+    s"""
+       |== Results ==
+       |${
+      sideBySide(
+        s"== Correct Answer - ${expectedAnswer.size} ==" +:
+          getRowType(expectedAnswer.headOption) +:
+          prepareAnswer(expectedAnswer, isSorted).map(_.toString()),
+        s"== Spark Answer - ${sparkAnswer.size} ==" +:
+          getRowType(sparkAnswer.headOption) +:
+          prepareAnswer(sparkAnswer, isSorted).map(_.toString())).mkString("\n")
     }
-    Row.fromSeq(row.toSeq.map(prepareValue))
+    """.stripMargin
+  }
+
+  def includesRows(
+      expectedRows: Seq[Row],
+      sparkAnswer: Seq[Row]): Option[String] = {
+    if (!prepareAnswer(expectedRows, true).toSet.subsetOf(prepareAnswer(sparkAnswer, true).toSet)) {
+      return Some(genError(expectedRows, sparkAnswer, true))
+    }
+    None
   }
 
   def sameRows(
@@ -316,16 +347,7 @@ object QueryTest {
       sparkAnswer: Seq[Row],
       isSorted: Boolean = false): Option[String] = {
     if (prepareAnswer(expectedAnswer, isSorted) != prepareAnswer(sparkAnswer, isSorted)) {
-      val errorMessage =
-        s"""
-         |== Results ==
-         |${sideBySide(
-        s"== Correct Answer - ${expectedAnswer.size} ==" +:
-         prepareAnswer(expectedAnswer, isSorted).map(_.toString()),
-        s"== Spark Answer - ${sparkAnswer.size} ==" +:
-         prepareAnswer(sparkAnswer, isSorted).map(_.toString())).mkString("\n")}
-        """.stripMargin
-      return Some(errorMessage)
+      return Some(genError(expectedAnswer, sparkAnswer, isSorted))
     }
     None
   }

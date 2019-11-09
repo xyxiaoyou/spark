@@ -14,24 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/*
- * Changes for TIBCO Project SnappyData data platform.
- *
- * Portions Copyright (c) 2017-2019 TIBCO Software Inc. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you
- * may not use this file except in compliance with the License. You
- * may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
- * implied. See the License for the specific language governing
- * permissions and limitations under the License. See accompanying
- * LICENSE file.
- */
 
 package org.apache.spark.scheduler.cluster
 
@@ -48,8 +30,7 @@ import org.apache.spark.rpc._
 import org.apache.spark.scheduler._
 import org.apache.spark.scheduler.cluster.CoarseGrainedClusterMessages._
 import org.apache.spark.scheduler.cluster.CoarseGrainedSchedulerBackend.ENDPOINT_NAME
-import org.apache.spark.util.{RpcUtils, ThreadUtils, Utils}
-import org.apache.spark.util.collection.OpenHashMap
+import org.apache.spark.util.{RpcUtils, SerializableBuffer, ThreadUtils, Utils}
 
 /**
  * A scheduler backend that waits for coarse-grained executors to connect.
@@ -61,8 +42,8 @@ import org.apache.spark.util.collection.OpenHashMap
  */
 private[spark]
 class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: RpcEnv)
-  extends ExecutorAllocationClient with SchedulerBackend with Logging
-{
+  extends ExecutorAllocationClient with SchedulerBackend with Logging {
+
   // Use an atomic variable to track total number of cores in the cluster for simplicity and speed
   protected val totalCoreCount = new AtomicInteger(0)
   // Total number of executors that are currently registered
@@ -87,6 +68,10 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
   // `CoarseGrainedSchedulerBackend.this`.
   private val executorDataMap = new HashMap[String, ExecutorData]
 
+  // Number of executors requested by the cluster manager, [[ExecutorAllocationManager]]
+  @GuardedBy("CoarseGrainedSchedulerBackend.this")
+  private var requestedTotalExecutors = 0
+
   // Number of executors requested from the cluster manager that have not registered yet
   @GuardedBy("CoarseGrainedSchedulerBackend.this")
   private var numPendingExecutors = 0
@@ -110,6 +95,9 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
   // The num of current max ExecutorId used to re-register appMaster
   @volatile protected var currentExecutorIdCounter = 0
 
+  private val reviveThread =
+    ThreadUtils.newDaemonSingleThreadScheduledExecutor("driver-revive-thread")
+
   class DriverEndpoint(override val rpcEnv: RpcEnv, sparkProperties: Seq[(String, String)])
     extends ThreadSafeRpcEndpoint with Logging {
 
@@ -117,9 +105,6 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
     protected val executorsPendingLossReason = new HashSet[String]
 
     protected val addressToExecutorId = new HashMap[RpcAddress, String]
-
-    private val reviveThread =
-      ThreadUtils.newDaemonSingleThreadScheduledExecutor("driver-revive-thread")
 
     override def onStart() {
       // Periodically revive offers to allow delay scheduling to work
@@ -134,11 +119,11 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
 
     override def receive: PartialFunction[Any, Unit] = {
       case StatusUpdate(executorId, taskId, state, data) =>
-        val cpusPerTask = scheduler.statusUpdate(taskId, state, data.value)
+        scheduler.statusUpdate(taskId, state, data.value)
         if (TaskState.isFinished(state)) {
           executorDataMap.get(executorId) match {
             case Some(executorInfo) =>
-              executorInfo.freeCores += cpusPerTask
+              executorInfo.freeCores += scheduler.CPUS_PER_TASK
               makeOffers(executorId)
             case None =>
               // Ignoring the update since we don't know about the executor.
@@ -150,14 +135,33 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
       case ReviveOffers =>
         makeOffers()
 
-      case KillTask(taskId, executorId, interruptThread) =>
+      case KillTask(taskId, executorId, interruptThread, reason) =>
         executorDataMap.get(executorId) match {
           case Some(executorInfo) =>
-            executorInfo.executorEndpoint.send(KillTask(taskId, executorId, interruptThread))
+            executorInfo.executorEndpoint.send(
+              KillTask(taskId, executorId, interruptThread, reason))
           case None =>
             // Ignoring the task kill since the executor is not registered.
             logWarning(s"Attempted to kill task $taskId for unknown executor $executorId.")
         }
+
+      case KillExecutorsOnHost(host) =>
+        scheduler.getExecutorsAliveOnHost(host).foreach { exec =>
+          killExecutors(exec.toSeq, adjustTargetNumExecutors = false, countFailures = false,
+            force = true)
+        }
+
+      case UpdateDelegationTokens(newDelegationTokens) =>
+        executorDataMap.values.foreach { ed =>
+          ed.executorEndpoint.send(UpdateDelegationTokens(newDelegationTokens))
+        }
+
+      case RemoveExecutor(executorId, reason) =>
+        // We will remove the executor's state and cannot restore it. However, the connection
+        // between the driver and the executor may be still alive so that the executor won't exit
+        // automatically, so try to tell the executor to stop itself. See SPARK-13519.
+        executorDataMap.get(executorId).foreach(_.executorEndpoint.send(StopExecutor))
+        removeExecutor(executorId, reason)
     }
 
     override def receiveAndReply(context: RpcCallContext): PartialFunction[Any, Unit] = {
@@ -165,6 +169,13 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
       case RegisterExecutor(executorId, executorRef, hostname, cores, logUrls) =>
         if (executorDataMap.contains(executorId)) {
           executorRef.send(RegisterExecutorFailed("Duplicate executor ID: " + executorId))
+          context.reply(true)
+        } else if (scheduler.nodeBlacklist.contains(hostname)) {
+          // If the cluster manager gives us an executor on a blacklisted node (because it
+          // already started allocating those resources before we informed it of our blacklist,
+          // or if it ignored our blacklist), then we reject that executor immediately.
+          logInfo(s"Rejecting $executorId as it has been blacklisted.")
+          executorRef.send(RegisterExecutorFailed(s"Executor is blacklisted: $executorId"))
           context.reply(true)
         } else {
           // If the executor's rpc env is not listening for incoming connections, `hostPort`
@@ -178,20 +189,14 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
           addressToExecutorId(executorAddress) = executorId
           totalCoreCount.addAndGet(cores)
           totalRegisteredExecutors.addAndGet(1)
-          val data = new ExecutorData(executorRef, executorRef.address, hostname,
+          val data = new ExecutorData(executorRef, executorAddress, hostname,
             cores, cores, logUrls)
           // This must be synchronized because variables mutated
           // in this block are read when requesting executors
           CoarseGrainedSchedulerBackend.this.synchronized {
             executorDataMap.put(executorId, data)
-            // [snappydata] skip toInt used for Yarn since snappydata's
-            // executorId is not an integer
-            try {
-              if (currentExecutorIdCounter < executorId.toInt) {
-                currentExecutorIdCounter = executorId.toInt
-              }
-            } catch {
-              case nfe: NumberFormatException => // ignore
+            if (currentExecutorIdCounter < executorId.toInt) {
+              currentExecutorIdCounter = executorId.toInt
             }
             if (numPendingExecutors > 0) {
               numPendingExecutors -= 1
@@ -217,28 +222,34 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
         }
         context.reply(true)
 
-      case RemoveExecutor(executorId, reason) =>
-        // We will remove the executor's state and cannot restore it. However, the connection
-        // between the driver and the executor may be still alive so that the executor won't exit
-        // automatically, so try to tell the executor to stop itself. See SPARK-13519.
-        executorDataMap.get(executorId).foreach(_.executorEndpoint.send(StopExecutor))
-        removeExecutor(executorId, reason)
+      case RemoveWorker(workerId, host, message) =>
+        removeWorker(workerId, host, message)
         context.reply(true)
 
       case RetrieveSparkAppConfig =>
-        val reply = SparkAppConfig(sparkProperties,
-          SparkEnv.get.securityManager.getIOEncryptionKey())
+        val reply = SparkAppConfig(
+          sparkProperties,
+          SparkEnv.get.securityManager.getIOEncryptionKey(),
+          fetchHadoopDelegationTokens())
         context.reply(reply)
     }
 
     // Make fake resource offers on all executors
     private def makeOffers() {
-      // Filter out executors under killing
-      val activeExecutors = executorDataMap.filterKeys(executorIsAlive)
-      val workOffers = activeExecutors.map { case (id, executorData) =>
-        new WorkerOffer(id, executorData.executorHost, executorData.freeCores)
-      }.toIndexedSeq
-      launchTasks(scheduler.resourceOffers(workOffers))
+      // Make sure no executor is killed while some task is launching on it
+      val taskDescs = withLock {
+        // Filter out executors under killing
+        val activeExecutors = executorDataMap.filterKeys(executorIsAlive)
+        val workOffers = activeExecutors.map {
+          case (id, executorData) =>
+            new WorkerOffer(id, executorData.executorHost, executorData.freeCores,
+              Some(executorData.executorAddress.hostPort))
+        }.toIndexedSeq
+        scheduler.resourceOffers(workOffers)
+      }
+      if (!taskDescs.isEmpty) {
+        launchTasks(taskDescs)
+      }
     }
 
     override def onDisconnected(remoteAddress: RpcAddress): Unit = {
@@ -251,12 +262,21 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
 
     // Make fake resource offers on just one executor
     private def makeOffers(executorId: String) {
-      // Filter out executors under killing
-      if (executorIsAlive(executorId)) {
-        val executorData = executorDataMap(executorId)
-        val workOffers = IndexedSeq(
-          new WorkerOffer(executorId, executorData.executorHost, executorData.freeCores))
-        launchTasks(scheduler.resourceOffers(workOffers))
+      // Make sure no executor is killed while some task is launching on it
+      val taskDescs = withLock {
+        // Filter out executors under killing
+        if (executorIsAlive(executorId)) {
+          val executorData = executorDataMap(executorId)
+          val workOffers = IndexedSeq(
+            new WorkerOffer(executorId, executorData.executorHost, executorData.freeCores,
+              Some(executorData.executorAddress.hostPort)))
+          scheduler.resourceOffers(workOffers)
+        } else {
+          Seq.empty
+        }
+      }
+      if (!taskDescs.isEmpty) {
+        launchTasks(taskDescs)
       }
     }
 
@@ -265,67 +285,32 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
         !executorsPendingLossReason.contains(executorId)
     }
 
-    protected def checkTaskSizeLimit(task: TaskDescription, taskSize: Int): Boolean = {
-      if (taskSize > maxRpcMessageSize) {
-        scheduler.taskIdToTaskSetManager.get(task.taskId).foreach { taskSetMgr =>
-          try {
-            var msg = "Serialized task %s:%d was %d bytes, which exceeds max allowed: " +
+    // Launch tasks returned by a set of resource offers
+    private def launchTasks(tasks: Seq[Seq[TaskDescription]]) {
+      for (task <- tasks.flatten) {
+        val serializedTask = TaskDescription.encode(task)
+        if (serializedTask.limit() >= maxRpcMessageSize) {
+          Option(scheduler.taskIdToTaskSetManager.get(task.taskId)).foreach { taskSetMgr =>
+            try {
+              var msg = "Serialized task %s:%d was %d bytes, which exceeds max allowed: " +
                 "spark.rpc.message.maxSize (%d bytes). Consider increasing " +
                 "spark.rpc.message.maxSize or using broadcast variables for large values."
-            msg = msg.format(task.taskId, task.index, taskSize, maxRpcMessageSize)
-            taskSetMgr.abort(msg)
-          } catch {
-            case e: Exception => logError("Exception in error callback", e)
+              msg = msg.format(task.taskId, task.index, serializedTask.limit(), maxRpcMessageSize)
+              taskSetMgr.abort(msg)
+            } catch {
+              case e: Exception => logError("Exception in error callback", e)
+            }
           }
         }
-        false
-      } else true
-    }
+        else {
+          val executorData = executorDataMap(task.executorId)
+          executorData.freeCores -= scheduler.CPUS_PER_TASK
 
-    // Launch tasks returned by a set of resource offers
-    protected def launchTasks(tasks: Seq[Seq[TaskDescription]]): Unit = {
-      val executorTaskGroupMap = new OpenHashMap[String, ExecutorTaskGroup](8)
-      for (taskSet <- tasks) {
-        for (task <- taskSet) {
-          val taskLimit = task.serializedTask.limit
-          val taskSize = taskLimit + task.taskData.compressedBytes.length
-          if (checkTaskSizeLimit(task, taskSize)) {
-            // group tasks per executor as long as message limit is not breached
-            executorTaskGroupMap.changeValue(task.executorId, {
-              val executorData = executorDataMap(task.executorId)
-              val executorTaskGroup = new ExecutorTaskGroup(executorData, taskSize)
-              executorTaskGroup.taskGroup += task
-              executorTaskGroup.taskDataList += task.taskData
-              // add reference to first index in taskDataList
-              task.taskData = TaskData(0)
-              executorTaskGroup
-            }, { executorTaskGroup =>
-              // group into existing if size fits in the max allowed
-              if (!executorTaskGroup.addTask(task, taskLimit, maxRpcMessageSize)) {
-                // send this task separately
-                val executorData = executorTaskGroup.executorData
-                executorData.freeCores -= task.cpusPerTask
-                scheduler.sc.env.taskLogger.logInfo(
-                  s"Launching task ${task.taskId} on executor id: " +
-                    s"${task.executorId} hostname: ${executorData.executorHost}.")
+          logDebug(s"Launching task ${task.taskId} on executor id: ${task.executorId} hostname: " +
+            s"${executorData.executorHost}.")
 
-                executorData.executorEndpoint.send(LaunchTask(task))
-              }
-              executorTaskGroup
-            })
-          }
+          executorData.executorEndpoint.send(LaunchTask(new SerializableBuffer(serializedTask)))
         }
-      }
-      // send the accumulated task groups per executor
-      executorTaskGroupMap.foreach { case (executorId, executorTaskGroup) =>
-        val taskGroup = executorTaskGroup.taskGroup
-        val executorData = executorTaskGroup.executorData
-
-        executorData.freeCores -= taskGroup.foldLeft(0)(_ + _.cpusPerTask)
-        logDebug(s"Launching tasks ${taskGroup.map(_.taskId).mkString(",")} on " +
-            s"executor id: $executorId hostname: ${executorData.executorHost}.")
-        executorData.executorEndpoint.send(LaunchTasks(taskGroup,
-          executorTaskGroup.taskDataList))
       }
     }
 
@@ -358,6 +343,12 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
       }
     }
 
+    // Remove a lost worker from the cluster
+    private def removeWorker(workerId: String, host: String, message: String): Unit = {
+      logDebug(s"Asked to remove worker $workerId with reason $message")
+      scheduler.workerRemoved(workerId, host, message)
+    }
+
     /**
      * Stop making resource offers for the given executor. The executor is marked as lost with
      * the loss reason still pending.
@@ -382,10 +373,6 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
       }
 
       shouldDisable
-    }
-
-    override def onStop() {
-      reviveThread.shutdownNow()
     }
   }
 
@@ -418,7 +405,7 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
     try {
       if (driverEndpoint != null) {
         logInfo("Shutting down all executors")
-        driverEndpoint.askWithRetry[Boolean](StopExecutors)
+        driverEndpoint.askSync[Boolean](StopExecutors)
       }
     } catch {
       case e: Exception =>
@@ -427,10 +414,11 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
   }
 
   override def stop() {
+    reviveThread.shutdownNow()
     stopExecutors()
     try {
       if (driverEndpoint != null) {
-        driverEndpoint.askWithRetry[Boolean](StopDriver)
+        driverEndpoint.askSync[Boolean](StopDriver)
       }
     } catch {
       case e: Exception =>
@@ -443,10 +431,11 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
    * be called in the yarn-client mode when AM re-registers after a failure.
    * */
   protected def reset(): Unit = {
-    val executors = synchronized {
+    val executors: Set[String] = synchronized {
+      requestedTotalExecutors = 0
       numPendingExecutors = 0
       executorsPendingToRemove.clear()
-      Set() ++ executorDataMap.keys
+      executorDataMap.keys.toSet
     }
 
     // Remove all the lingering executors that should be removed but not yet. The reason might be
@@ -460,8 +449,9 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
     driverEndpoint.send(ReviveOffers)
   }
 
-  override def killTask(taskId: Long, executorId: String, interruptThread: Boolean) {
-    driverEndpoint.send(KillTask(taskId, executorId, interruptThread))
+  override def killTask(
+      taskId: Long, executorId: String, interruptThread: Boolean, reason: String) {
+    driverEndpoint.send(KillTask(taskId, executorId, interruptThread, reason))
   }
 
   override def defaultParallelism(): Int = {
@@ -473,10 +463,12 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
    * at once.
    */
   protected def removeExecutor(executorId: String, reason: ExecutorLossReason): Unit = {
-    // Only log the failure since we don't care about the result.
-    driverEndpoint.ask[Boolean](RemoveExecutor(executorId, reason)).onFailure { case t =>
-      logError(t.getMessage, t)
-    }(ThreadUtils.sameThread)
+    driverEndpoint.send(RemoveExecutor(executorId, reason))
+  }
+
+  protected def removeWorker(workerId: String, host: String, message: String): Unit = {
+    driverEndpoint.ask[Boolean](RemoveWorker(workerId, host, message)).failed.foreach(t =>
+      logError(t.getMessage, t))(ThreadUtils.sameThread)
   }
 
   def sufficientResourcesRegistered(): Boolean = true
@@ -504,6 +496,12 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
     executorDataMap.keySet.toSeq
   }
 
+  override def maxNumConcurrentTasks(): Int = {
+    executorDataMap.values.map { executor =>
+      executor.totalCores / scheduler.CPUS_PER_TASK
+    }.sum
+  }
+
   /**
    * Request an additional number of executors from the cluster manager.
    * @return whether the request is acknowledged.
@@ -517,12 +515,21 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
     logInfo(s"Requesting $numAdditionalExecutors additional executor(s) from the cluster manager")
 
     val response = synchronized {
+      requestedTotalExecutors += numAdditionalExecutors
       numPendingExecutors += numAdditionalExecutors
       logDebug(s"Number of pending executors is now $numPendingExecutors")
+      if (requestedTotalExecutors !=
+          (numExistingExecutors + numPendingExecutors - executorsPendingToRemove.size)) {
+        logDebug(
+          s"""requestExecutors($numAdditionalExecutors): Executor request doesn't match:
+             |requestedTotalExecutors  = $requestedTotalExecutors
+             |numExistingExecutors     = $numExistingExecutors
+             |numPendingExecutors      = $numPendingExecutors
+             |executorsPendingToRemove = ${executorsPendingToRemove.size}""".stripMargin)
+      }
 
       // Account for executors pending to be added or removed
-      doRequestTotalExecutors(
-        numExistingExecutors + numPendingExecutors - executorsPendingToRemove.size)
+      doRequestTotalExecutors(requestedTotalExecutors)
     }
 
     defaultAskTimeout.awaitResult(response)
@@ -554,6 +561,7 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
     }
 
     val response = synchronized {
+      this.requestedTotalExecutors = numExecutors
       this.localityAwareTasks = localityAwareTasks
       this.hostToLocalTaskCount = hostToLocalTaskCount
 
@@ -583,33 +591,23 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
 
   /**
    * Request that the cluster manager kill the specified executors.
-   * @return whether the kill request is acknowledged. If list to kill is empty, it will return
-   *         false.
-   */
-  final override def killExecutors(executorIds: Seq[String]): Seq[String] = {
-    killExecutors(executorIds, replace = false, force = false)
-  }
-
-  /**
-   * Request that the cluster manager kill the specified executors.
-   *
-   * When asking the executor to be replaced, the executor loss is considered a failure, and
-   * killed tasks that are running on the executor will count towards the failure limits. If no
-   * replacement is being requested, then the tasks will not count towards the limit.
    *
    * @param executorIds identifiers of executors to kill
-   * @param replace whether to replace the killed executors with new ones
-   * @param force whether to force kill busy executors
-   * @return whether the kill request is acknowledged. If list to kill is empty, it will return
-   *         false.
+   * @param adjustTargetNumExecutors whether the target number of executors be adjusted down
+   *                                 after these executors have been killed
+   * @param countFailures if there are tasks running on the executors when they are killed, whether
+   *                      those failures be counted to task failure limits?
+   * @param force whether to force kill busy executors, default false
+   * @return the ids of the executors acknowledged by the cluster manager to be removed.
    */
-  final def killExecutors(
+  final override def killExecutors(
       executorIds: Seq[String],
-      replace: Boolean,
+      adjustTargetNumExecutors: Boolean,
+      countFailures: Boolean,
       force: Boolean): Seq[String] = {
     logInfo(s"Requesting to kill executor(s) ${executorIds.mkString(", ")}")
 
-    val response = synchronized {
+    val response = withLock {
       val (knownExecutors, unknownExecutors) = executorIds.partition(executorDataMap.contains)
       unknownExecutors.foreach { id =>
         logWarning(s"Executor to kill $id does not exist!")
@@ -620,7 +618,7 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
       val executorsToKill = knownExecutors
         .filter { id => !executorsPendingToRemove.contains(id) }
         .filter { id => force || !scheduler.isExecutorBusy(id) }
-      executorsToKill.foreach { id => executorsPendingToRemove(id) = !replace }
+      executorsToKill.foreach { id => executorsPendingToRemove(id) = !countFailures }
 
       logInfo(s"Actual list of executor(s) to be killed is ${executorsToKill.mkString(", ")}")
 
@@ -628,11 +626,21 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
       // with the cluster manager to avoid allocating new ones. When computing the new target,
       // take into account executors that are pending to be added or removed.
       val adjustTotalExecutors =
-        if (!replace) {
-          doRequestTotalExecutors(
-            numExistingExecutors + numPendingExecutors - executorsPendingToRemove.size)
+        if (adjustTargetNumExecutors) {
+          requestedTotalExecutors = math.max(requestedTotalExecutors - executorsToKill.size, 0)
+          if (requestedTotalExecutors !=
+              (numExistingExecutors + numPendingExecutors - executorsPendingToRemove.size)) {
+            logDebug(
+              s"""killExecutors($executorIds, $adjustTargetNumExecutors, $countFailures, $force):
+                 |Executor counts do not match:
+                 |requestedTotalExecutors  = $requestedTotalExecutors
+                 |numExistingExecutors     = $numExistingExecutors
+                 |numPendingExecutors      = $numPendingExecutors
+                 |executorsPendingToRemove = ${executorsPendingToRemove.size}""".stripMargin)
+          }
+          doRequestTotalExecutors(requestedTotalExecutors)
         } else {
-          numPendingExecutors += knownExecutors.size
+          numPendingExecutors += executorsToKill.size
           Future.successful(true)
         }
 
@@ -659,57 +667,33 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val rpcEnv: Rp
    */
   protected def doKillExecutors(executorIds: Seq[String]): Future[Boolean] =
     Future.successful(false)
+
+  /**
+   * Request that the cluster manager kill all executors on a given host.
+   * @return whether the kill request is acknowledged.
+   */
+  final override def killExecutorsOnHost(host: String): Boolean = {
+    logInfo(s"Requesting to kill any and all executors on host ${host}")
+    // A potential race exists if a new executor attempts to register on a host
+    // that is on the blacklist and is no no longer valid. To avoid this race,
+    // all executor registration and killing happens in the event loop. This way, either
+    // an executor will fail to register, or will be killed when all executors on a host
+    // are killed.
+    // Kill all the executors on this host in an event loop to ensure serialization.
+    driverEndpoint.send(KillExecutorsOnHost(host))
+    true
+  }
+
+  protected def fetchHadoopDelegationTokens(): Option[Array[Byte]] = { None }
+
+  // SPARK-27112: We need to ensure that there is ordering of lock acquisition
+  // between TaskSchedulerImpl and CoarseGrainedSchedulerBackend objects in order to fix
+  // the deadlock issue exposed in SPARK-27112
+  private def withLock[T](fn: => T): T = scheduler.synchronized {
+    CoarseGrainedSchedulerBackend.this.synchronized { fn }
+  }
 }
 
 private[spark] object CoarseGrainedSchedulerBackend {
   val ENDPOINT_NAME = "CoarseGrainedScheduler"
-}
-
-private[spark] final class ExecutorTaskGroup(
-    private[cluster] var executorData: ExecutorData,
-    private var groupSize: Int = 0) {
-
-  private[cluster] val taskGroup = new ArrayBuffer[TaskDescription](2)
-  // field to carry around common task data
-  private[cluster] val taskDataList = new ArrayBuffer[TaskData](2)
-
-  def addTask(task: TaskDescription, taskLimit: Int, limit: Int): Boolean = {
-    val newGroupSize = groupSize + taskLimit
-    if (newGroupSize > limit) return false
-
-    groupSize = newGroupSize
-    // linear search is best since there cannot be many different
-    // tasks in a single taskSet
-    if (task.taskData.uncompressedLen == 0 ||
-        findOrAddTaskData(task, taskDataList, limit)) {
-      taskGroup += task
-      true
-    } else {
-      // task rejected from group
-      groupSize -= taskLimit
-      false
-    }
-  }
-
-  private def findOrAddTaskData(task: TaskDescription,
-      taskDataList: ArrayBuffer[TaskData], limit: Int): Boolean = {
-    val data = task.taskData
-    val numData = taskDataList.length
-    var i = 0
-    while (i < numData) {
-      if (taskDataList(i) eq data) {
-        // add reference to index `i` in taskDataList
-        task.taskData = TaskData(i)
-        return true
-      }
-      i += 1
-    }
-    val newGroupSize = groupSize + data.compressedBytes.length
-    if (newGroupSize <= limit) {
-      groupSize = newGroupSize
-      taskDataList += data
-      task.taskData = TaskData(numData)
-      true
-    } else false
-  }
 }

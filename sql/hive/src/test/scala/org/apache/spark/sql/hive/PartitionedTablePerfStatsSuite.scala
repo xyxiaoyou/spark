@@ -23,8 +23,8 @@ import java.util.concurrent.{Executors, TimeUnit}
 import org.scalatest.BeforeAndAfterEach
 
 import org.apache.spark.metrics.source.HiveCatalogMetrics
-import org.apache.spark.sql.execution.datasources.FileStatusCache
 import org.apache.spark.sql.QueryTest
+import org.apache.spark.sql.execution.datasources.FileStatusCache
 import org.apache.spark.sql.hive.test.TestHiveSingleton
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SQLTestUtils
@@ -72,7 +72,7 @@ class PartitionedTablePerfStatsSuite
       |create external table $tableName (fieldOne long)
       |partitioned by (partCol1 int, partCol2 int)
       |stored as parquet
-      |location "${dir.getAbsolutePath}"""".stripMargin)
+      |location "${dir.toURI}"""".stripMargin)
     if (repair) {
       spark.sql(s"msck repair table $tableName")
     }
@@ -92,7 +92,7 @@ class PartitionedTablePerfStatsSuite
     spark.sql(s"""
       |create table $tableName (fieldOne long, partCol1 int, partCol2 int)
       |using parquet
-      |options (path "${dir.getAbsolutePath}")
+      |options (path "${dir.toURI}")
       |partitioned by (partCol1, partCol2)""".stripMargin)
     if (repair) {
       spark.sql(s"msck repair table $tableName")
@@ -409,6 +409,17 @@ class PartitionedTablePerfStatsSuite
           assert(HiveCatalogMetrics.METRIC_PARALLEL_LISTING_JOB_COUNT.getCount() == 1)
         }
       }
+    }
+  }
+
+  test("resolveRelation for a FileFormat DataSource without userSchema scan filesystem only once") {
+    withTempDir { dir =>
+      import spark.implicits._
+      Seq(1).toDF("a").write.mode("overwrite").save(dir.getAbsolutePath)
+      HiveCatalogMetrics.reset()
+      spark.read.load(dir.getAbsolutePath)
+      assert(HiveCatalogMetrics.METRIC_FILES_DISCOVERED.getCount() == 1)
+      assert(HiveCatalogMetrics.METRIC_FILE_CACHE_HITS.getCount() == 0)
     }
   }
 }

@@ -65,11 +65,17 @@ private[ml] abstract class LSHModel[T <: LSHModel[T]]
   extends Model[T] with LSHParams with MLWritable {
   self: T =>
 
+  /** @group setParam */
+  def setInputCol(value: String): this.type = set(inputCol, value)
+
+  /** @group setParam */
+  def setOutputCol(value: String): this.type = set(outputCol, value)
+
   /**
    * The hash function of LSH, mapping an input feature vector to multiple hash vectors.
    * @return The mapping of LSH function.
    */
-  protected[ml] val hashFunction: Vector => Array[Vector]
+  protected[ml] def hashFunction(elems: Vector): Array[Vector]
 
   /**
    * Calculate the distance between two different keys using the distance metric corresponding
@@ -91,7 +97,7 @@ private[ml] abstract class LSHModel[T <: LSHModel[T]]
 
   override def transform(dataset: Dataset[_]): DataFrame = {
     transformSchema(dataset.schema, logging = true)
-    val transformUDF = udf(hashFunction, DataTypes.createArrayType(new VectorUDT))
+    val transformUDF = udf(hashFunction(_: Vector), DataTypes.createArrayType(new VectorUDT))
     dataset.withColumn($(outputCol), transformUDF(dataset($(inputCol))))
   }
 
@@ -222,7 +228,7 @@ private[ml] abstract class LSHModel[T <: LSHModel[T]]
   }
 
   /**
-   * Join two dataset to approximately find all pairs of rows whose distance are smaller than
+   * Join two datasets to approximately find all pairs of rows whose distance are smaller than
    * the threshold. If the [[outputCol]] is missing, the method will transform the data; if the
    * [[outputCol]] exists, it will use the [[outputCol]]. This allows caching of the transformed
    * data when necessary.
@@ -230,9 +236,10 @@ private[ml] abstract class LSHModel[T <: LSHModel[T]]
    * @param datasetA One of the datasets to join.
    * @param datasetB Another dataset to join.
    * @param threshold The threshold for the distance of row pairs.
-   * @param distCol Output column for storing the distance between each result row and the key.
+   * @param distCol Output column for storing the distance between each pair of rows.
    * @return A joined dataset containing pairs of rows. The original rows are in columns
-   *         "datasetA" and "datasetB", and a distCol is added to show the distance of each pair.
+   *         "datasetA" and "datasetB", and a column "distCol" is added to show the distance
+   *         between each pair.
    */
   def approxSimilarityJoin(
       datasetA: Dataset[_],

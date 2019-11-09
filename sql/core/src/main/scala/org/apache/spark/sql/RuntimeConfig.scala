@@ -19,7 +19,7 @@ package org.apache.spark.sql
 
 import org.apache.spark.annotation.InterfaceStability
 import org.apache.spark.internal.config.{ConfigEntry, OptionalConfigEntry}
-import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
+import org.apache.spark.sql.internal.SQLConf
 
 
 /**
@@ -133,6 +133,17 @@ class RuntimeConfig private[sql](sqlConf: SQLConf = new SQLConf) {
   }
 
   /**
+   * Indicates whether the configuration property with the given key
+   * is modifiable in the current session.
+   *
+   * @return `true` if the configuration property is modifiable. For static SQL, Spark Core,
+   *         invalid (not existing) and other non-modifiable configuration properties,
+   *         the returned value is `false`.
+   * @since 2.4.0
+   */
+  def isModifiable(key: String): Boolean = sqlConf.isModifiable(key)
+
+  /**
    * Returns whether a particular key is set.
    */
   protected[sql] def contains(key: String): Boolean = {
@@ -140,7 +151,7 @@ class RuntimeConfig private[sql](sqlConf: SQLConf = new SQLConf) {
   }
 
   private def requireNonStaticConf(key: String): Unit = {
-    if (StaticSQLConf.globalConfKeys.contains(key)) {
+    if (SQLConf.staticConfKeys.contains(key)) {
       throw new AnalysisException(s"Cannot modify the value of a static config: $key")
     }
   }

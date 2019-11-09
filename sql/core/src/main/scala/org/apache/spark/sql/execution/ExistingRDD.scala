@@ -86,16 +86,9 @@ case class ExternalRDD[T](
   override def newInstance(): ExternalRDD.this.type =
     ExternalRDD(outputObjAttr.newInstance(), rdd)(session).asInstanceOf[this.type]
 
-  override def sameResult(plan: LogicalPlan): Boolean = {
-    plan.canonicalized match {
-      case ExternalRDD(_, otherRDD) => rdd.id == otherRDD.id
-      case _ => false
-    }
-  }
-
   override protected def stringArgs: Iterator[Any] = Iterator(output)
 
-  @transient override lazy val statistics: Statistics = Statistics(
+  override def computeStats(): Statistics = Statistics(
     // TODO: Instead of returning a default value here, find a way to return a meaningful size
     // estimate for RDDs. See PR 1238 for more discussions.
     sizeInBytes = BigInt(session.sessionState.conf.defaultSizeInBytes)
@@ -110,6 +103,10 @@ case class ExternalRDDScanExec[T](
   override lazy val metrics = Map(
     "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"))
 
+  private def rddName: String = Option(rdd.name).map(n => s" $n").getOrElse("")
+
+  override val nodeName: String = s"Scan$rddName"
+
   protected override def doExecute(): RDD[InternalRow] = {
     val numOutputRows = longMetric("numOutputRows")
     val outputDataType = outputObjAttr.dataType
@@ -123,7 +120,7 @@ case class ExternalRDDScanExec[T](
   }
 
   override def simpleString: String = {
-    s"Scan $nodeName${output.mkString("[", ",", "]")}"
+    s"$nodeName${output.mkString("[", ",", "]")}"
   }
 }
 
@@ -132,7 +129,8 @@ case class LogicalRDD(
     output: Seq[Attribute],
     rdd: RDD[InternalRow],
     outputPartitioning: Partitioning = UnknownPartitioning(0),
-    outputOrdering: Seq[SortOrder] = Nil)(session: SparkSession)
+    override val outputOrdering: Seq[SortOrder] = Nil,
+    override val isStreaming: Boolean = false)(session: SparkSession)
   extends LeafNode with MultiInstanceRelation {
 
   override protected final def otherCopyArgs: Seq[AnyRef] = session :: Nil
@@ -157,20 +155,14 @@ case class LogicalRDD(
       output.map(rewrite),
       rdd,
       rewrittenPartitioning,
-      rewrittenOrdering
+      rewrittenOrdering,
+      isStreaming
     )(session).asInstanceOf[this.type]
   }
 
-  override def sameResult(plan: LogicalPlan): Boolean = {
-    plan.canonicalized match {
-      case LogicalRDD(_, otherRDD, _, _) => rdd.id == otherRDD.id
-      case _ => false
-    }
-  }
+  override protected def stringArgs: Iterator[Any] = Iterator(output, isStreaming)
 
-  override protected def stringArgs: Iterator[Any] = Iterator(output)
-
-  @transient override lazy val statistics: Statistics = Statistics(
+  override def computeStats(): Statistics = Statistics(
     // TODO: Instead of returning a default value here, find a way to return a meaningful size
     // estimate for RDDs. See PR 1238 for more discussions.
     sizeInBytes = BigInt(session.sessionState.conf.defaultSizeInBytes)
@@ -181,9 +173,13 @@ case class LogicalRDD(
 case class RDDScanExec(
     output: Seq[Attribute],
     rdd: RDD[InternalRow],
-    override val nodeName: String,
+    name: String,
     override val outputPartitioning: Partitioning = UnknownPartitioning(0),
     override val outputOrdering: Seq[SortOrder] = Nil) extends LeafExecNode {
+
+  private def rddName: String = Option(rdd.name).map(n => s" $n").getOrElse("")
+
+  override val nodeName: String = s"Scan $name$rddName"
 
   override lazy val metrics = Map(
     "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"))
@@ -201,6 +197,6 @@ case class RDDScanExec(
   }
 
   override def simpleString: String = {
-    s"Scan $nodeName${Utils.truncatedString(output, "[", ",", "]")}"
+    s"$nodeName${Utils.truncatedString(output, "[", ",", "]")}"
   }
 }

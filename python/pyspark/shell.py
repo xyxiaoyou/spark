@@ -15,25 +15,6 @@
 # limitations under the License.
 #
 
-#
-# Changes for SnappyData data platform.
-#
-# Portions Copyright (c) 2017-2019 TIBCO Software Inc. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License"); you
-# may not use this file except in compliance with the License. You
-# may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-# implied. See the License for the specific language governing
-# permissions and limitations under the License. See accompanying
-# LICENSE file.
-#
-
 """
 An interactive shell.
 
@@ -43,14 +24,13 @@ This file is designed to be launched as a PYTHONSTARTUP script.
 import atexit
 import os
 import platform
+import warnings
 
 import py4j
 
-import pyspark
+from pyspark import SparkConf
 from pyspark.context import SparkContext
 from pyspark.sql import SparkSession, SQLContext
-from pyspark.sql.snappy import SnappySession
-from pyspark.storagelevel import StorageLevel
 
 if os.environ.get("SPARK_EXECUTOR_URI"):
     SparkContext.setSystemProperty("spark.executor.uri", os.environ["SPARK_EXECUTOR_URI"])
@@ -58,27 +38,23 @@ if os.environ.get("SPARK_EXECUTOR_URI"):
 SparkContext._ensure_initialized()
 
 try:
-    # Try to access HiveConf, it will raise exception if Hive is not added
-    SparkContext._jvm.org.apache.hadoop.hive.conf.HiveConf()
-    spark = SparkSession.builder\
-        .enableHiveSupport()\
-        .getOrCreate()
-except py4j.protocol.Py4JError:
-    spark = SparkSession.builder.getOrCreate()
-except TypeError:
-    spark = SparkSession.builder.getOrCreate()
-
+    spark = SparkSession._create_shell_session()
+except Exception:
+    import sys
+    import traceback
+    warnings.warn("Failed to initialize Spark session.")
+    traceback.print_exc(file=sys.stderr)
+    sys.exit(1)
 
 sc = spark.sparkContext
-snappy = SnappySession(sc)
-sql = snappy.sql
+sql = spark.sql
 atexit.register(lambda: sc.stop())
 
 # for compatibility
-sqlContext = snappy._wrapped
+sqlContext = spark._wrapped
 sqlCtx = sqlContext
 
-print("""Welcome to
+print(r"""Welcome to
       ____              __
      / __/__  ___ _____/ /__
     _\ \/ _ \/ _ `/ __/  '_/
@@ -90,7 +66,6 @@ print("Using Python version %s (%s, %s)" % (
     platform.python_build()[0],
     platform.python_build()[1]))
 print("SparkSession available as 'spark'.")
-print("SnappySession available as 'snappy'.")
 
 # The ./bin/pyspark script stores the old PYTHONSTARTUP value in OLD_PYTHONSTARTUP,
 # which allows us to execute the user's PYTHONSTARTUP file:

@@ -14,24 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/*
- * Changes for SnappyData data platform.
- *
- * Portions Copyright (c) 2017-2019 TIBCO Software Inc. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you
- * may not use this file except in compliance with the License. You
- * may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
- * implied. See the License for the specific language governing
- * permissions and limitations under the License. See accompanying
- * LICENSE file.
- */
 
 package org.apache.spark.sql.catalyst
 
@@ -188,8 +170,9 @@ object CatalystTypeConverters {
             convertedIterable += elementConverter.toCatalyst(item)
           }
           new GenericArrayData(convertedIterable.toArray)
-
-        case a: ArrayData => a
+        case other => throw new IllegalArgumentException(
+          s"The value (${other.toString}) of the type (${other.getClass.getCanonicalName}) "
+            + s"cannot be converted to an array of ${elementType.catalogString}")
       }
     }
 
@@ -226,7 +209,10 @@ object CatalystTypeConverters {
       scalaValue match {
         case map: Map[_, _] => ArrayBasedMapData(map, keyFunction, valueFunction)
         case javaMap: JavaMap[_, _] => ArrayBasedMapData(javaMap, keyFunction, valueFunction)
-        case m: MapData => m
+        case other => throw new IllegalArgumentException(
+          s"The value (${other.toString}) of the type (${other.getClass.getCanonicalName}) "
+            + "cannot be converted to a map type with "
+            + s"key type (${keyType.catalogString}) and value type (${valueType.catalogString})")
       }
     }
 
@@ -273,8 +259,9 @@ object CatalystTypeConverters {
           idx += 1
         }
         new GenericInternalRow(ar)
-
-      case row: InternalRow => row
+      case other => throw new IllegalArgumentException(
+        s"The value (${other.toString}) of the type (${other.getClass.getCanonicalName}) "
+          + s"cannot be converted to ${structType.catalogString}")
     }
 
     override def toScala(row: InternalRow): Row = {
@@ -299,6 +286,10 @@ object CatalystTypeConverters {
     override def toCatalystImpl(scalaValue: Any): UTF8String = scalaValue match {
       case str: String => UTF8String.fromString(str)
       case utf8: UTF8String => utf8
+      case chr: Char => UTF8String.fromString(chr.toString)
+      case other => throw new IllegalArgumentException(
+        s"The value (${other.toString}) of the type (${other.getClass.getCanonicalName}) "
+          + s"cannot be converted to the string type")
     }
     override def toScala(catalystValue: UTF8String): String =
       if (catalystValue == null) null else catalystValue.toString
@@ -332,12 +323,11 @@ object CatalystTypeConverters {
         case d: JavaBigDecimal => Decimal(d)
         case d: JavaBigInteger => Decimal(d)
         case d: Decimal => d
+        case other => throw new IllegalArgumentException(
+          s"The value (${other.toString}) of the type (${other.getClass.getCanonicalName}) "
+            + s"cannot be converted to ${dataType.catalogString}")
       }
-      if (decimal.changePrecision(dataType.precision, dataType.scale)) {
-        decimal
-      } else {
-        null
-      }
+      decimal.toPrecision(dataType.precision, dataType.scale)
     }
     override def toScala(catalystValue: Decimal): JavaBigDecimal = {
       if (catalystValue == null) null
@@ -431,18 +421,8 @@ object CatalystTypeConverters {
     case s: String => StringConverter.toCatalyst(s)
     case d: Date => DateConverter.toCatalyst(d)
     case t: Timestamp => TimestampConverter.toCatalyst(t)
-    case d: BigDecimal =>
-      var precision = d.precision
-      if (d.precision < d.scale) {
-        precision = d.scale + 1
-      }
-      new DecimalConverter(DecimalType(precision, d.scale)).toCatalyst(d)
-    case d: JavaBigDecimal =>
-      var precision = d.precision
-      if (d.precision < d.scale) {
-        precision = d.scale + 1
-      }
-      new DecimalConverter(DecimalType(precision, d.scale)).toCatalyst(d)
+    case d: BigDecimal => new DecimalConverter(DecimalType(d.precision, d.scale)).toCatalyst(d)
+    case d: JavaBigDecimal => new DecimalConverter(DecimalType(d.precision, d.scale)).toCatalyst(d)
     case seq: Seq[Any] => new GenericArrayData(seq.map(convertToCatalyst).toArray)
     case r: Row => InternalRow(r.toSeq.map(convertToCatalyst): _*)
     case arr: Array[Any] => new GenericArrayData(arr.map(convertToCatalyst))
@@ -451,6 +431,12 @@ object CatalystTypeConverters {
         map,
         (key: Any) => convertToCatalyst(key),
         (value: Any) => convertToCatalyst(value))
+    case (keys: Array[_], values: Array[_]) =>
+      // case for mapdata with duplicate keys
+      new ArrayBasedMapData(
+        new GenericArrayData(keys.map(convertToCatalyst)),
+        new GenericArrayData(values.map(convertToCatalyst))
+      )
     case other => other
   }
 

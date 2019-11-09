@@ -40,7 +40,7 @@ private[spark] object RpcEnv {
       conf: SparkConf,
       securityManager: SecurityManager,
       clientMode: Boolean = false): RpcEnv = {
-    create(name, host, host, port, conf, securityManager, clientMode)
+    create(name, host, host, port, conf, securityManager, 0, clientMode)
   }
 
   def create(
@@ -50,9 +50,10 @@ private[spark] object RpcEnv {
       port: Int,
       conf: SparkConf,
       securityManager: SecurityManager,
+      numUsableCores: Int,
       clientMode: Boolean): RpcEnv = {
     val config = RpcEnvConfig(conf, name, bindAddress, advertiseAddress, port, securityManager,
-      clientMode)
+      numUsableCores, clientMode)
     new NettyRpcEnvFactory().create(config)
   }
 }
@@ -70,10 +71,6 @@ private[spark] object RpcEnv {
 private[spark] abstract class RpcEnv(conf: SparkConf) {
 
   private[spark] val defaultLookupTimeout = RpcUtils.lookupRpcTimeout(conf)
-
-  private[spark] val maxRetries = RpcUtils.numRetries(conf)
-  private[spark] val retryWaitMs = RpcUtils.retryWaitMs(conf)
-  private[spark] val defaultAskTimeout = RpcUtils.askRpcTimeout(conf)
 
   /**
    * Return RpcEndpointRef of the registered [[RpcEndpoint]]. Will be used to implement
@@ -150,16 +147,6 @@ private[spark] abstract class RpcEnv(conf: SparkConf) {
    * @param uri URI with location of the file.
    */
   def openChannel(uri: String): ReadableByteChannel
-
-  /**
-   * Open a channel to download a file from the given URI. If the URIs returned by the
-   * RpcEnvFileServer use the "spark" scheme, this method will be called by the Utils class to
-   * retrieve the files.
-   *
-   * @param uri URI with location of the file.
-   * @param readTimeoutMs timeout in reading in millisecond
-   */
-  def openChannel(uri: String, readTimeoutMs: Long): ReadableByteChannel
 }
 
 /**
@@ -215,4 +202,5 @@ private[spark] case class RpcEnvConfig(
     advertiseAddress: String,
     port: Int,
     securityManager: SecurityManager,
+    numUsableCores: Int,
     clientMode: Boolean)

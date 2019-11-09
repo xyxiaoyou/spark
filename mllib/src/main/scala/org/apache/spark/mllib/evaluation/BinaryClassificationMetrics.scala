@@ -98,16 +98,16 @@ class BinaryClassificationMetrics @Since("1.3.0") (
 
   /**
    * Returns the precision-recall curve, which is an RDD of (recall, precision),
-   * NOT (precision, recall), with (0.0, 1.0) prepended to it.
+   * NOT (precision, recall), with (0.0, p) prepended to it, where p is the precision
+   * associated with the lowest recall on the curve.
    * @see <a href="http://en.wikipedia.org/wiki/Precision_and_recall">
    * Precision and recall (Wikipedia)</a>
    */
   @Since("1.0.0")
   def pr(): RDD[(Double, Double)] = {
     val prCurve = createCurve(Recall, Precision)
-    val sc = confusions.context
-    val first = sc.makeRDD(Seq((0.0, 1.0)), 1)
-    first.union(prCurve)
+    val (_, firstPrecision) = prCurve.first()
+    confusions.context.parallelize(Seq((0.0, firstPrecision)), 1).union(prCurve)
   }
 
   /**
@@ -175,12 +175,15 @@ class BinaryClassificationMetrics @Since("1.3.0") (
             grouping = Int.MaxValue
           }
           counts.mapPartitions(_.grouped(grouping.toInt).map { pairs =>
-            // The score of the combined point will be just the first one's score
-            val firstScore = pairs.head._1
-            // The point will contain all counts in this chunk
+            // The score of the combined point will be just the last one's score, which is also
+            // the minimal in each chunk since all scores are already sorted in descending.
+            val lastScore = pairs.last._1
+            // The combined point will contain all counts in this chunk. Thus, calculated
+            // metrics (like precision, recall, etc.) on its score (or so-called threshold) are
+            // the same as those without sampling.
             val agg = new BinaryLabelCounter()
             pairs.foreach(pair => agg += pair._2)
-            (firstScore, agg)
+            (lastScore, agg)
           })
         }
       }

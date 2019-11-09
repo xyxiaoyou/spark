@@ -23,10 +23,10 @@ import org.apache.spark.sql.catalyst.expressions._
 trait QueryPlanConstraints extends ConstraintHelper { self: LogicalPlan =>
 
   /**
-    * An [[ExpressionSet]] that contains invariants about the rows output by this operator. For
-    * example, if this set contains the expression `a = 2` then that expression is guaranteed to
-    * evaluate to `true` for all rows produced.
-    */
+   * An [[ExpressionSet]] that contains invariants about the rows output by this operator. For
+   * example, if this set contains the expression `a = 2` then that expression is guaranteed to
+   * evaluate to `true` for all rows produced.
+   */
   lazy val constraints: ExpressionSet = {
     if (conf.constraintPropagationEnabled) {
       ExpressionSet(
@@ -43,34 +43,23 @@ trait QueryPlanConstraints extends ConstraintHelper { self: LogicalPlan =>
   }
 
   /**
-   * Returns [[constraints]] depending on the config of enabling constraint propagation. If the
-   * flag is disabled, simply returning an empty constraints.
+   * This method can be overridden by any child class of QueryPlan to specify a set of constraints
+   * based on the given operator's constraint propagation logic. These constraints are then
+   * canonicalized and filtered automatically to contain only those attributes that appear in the
+   * [[outputSet]].
+   *
+   * See [[Canonicalize]] for more details.
    */
-  private[spark] def getConstraints(constraintPropagationEnabled: Boolean): ExpressionSet =
-    if (constraintPropagationEnabled) {
-      constraints
-    } else {
-      ExpressionSet(Set.empty)
-    }
-
-  /**
-    * This method can be overridden by any child class of QueryPlan to specify a set of constraints
-    * based on the given operator's constraint propagation logic. These constraints are then
-    * canonicalized and filtered automatically to contain only those attributes that appear in the
-    * [[outputSet]].
-    *
-    * See [[Canonicalize]] for more details.
-    */
   protected def validConstraints: Set[Expression] = Set.empty
 }
 
 trait ConstraintHelper {
 
   /**
-    * Infers an additional set of constraints from a given set of equality constraints.
-    * For e.g., if an operator has constraints of the form (`a = 5`, `a = b`), this returns an
-    * additional constraint of the form `b = 5`.
-    */
+   * Infers an additional set of constraints from a given set of equality constraints.
+   * For e.g., if an operator has constraints of the form (`a = 5`, `a = b`), this returns an
+   * additional constraint of the form `b = 5`.
+   */
   def inferAdditionalConstraints(constraints: Set[Expression]): Set[Expression] = {
     var inferredConstraints = Set.empty[Expression]
     constraints.foreach {
@@ -84,20 +73,20 @@ trait ConstraintHelper {
   }
 
   private def replaceConstraints(
-                                  constraints: Set[Expression],
-                                  source: Expression,
-                                  destination: Attribute): Set[Expression] = constraints.map(_ transform {
+      constraints: Set[Expression],
+      source: Expression,
+      destination: Attribute): Set[Expression] = constraints.map(_ transform {
     case e: Expression if e.semanticEquals(source) => destination
   })
 
   /**
-    * Infers a set of `isNotNull` constraints from null intolerant expressions as well as
-    * non-nullable attributes. For e.g., if an expression is of the form (`a > 5`), this
-    * returns a constraint of the form `isNotNull(a)`
-    */
+   * Infers a set of `isNotNull` constraints from null intolerant expressions as well as
+   * non-nullable attributes. For e.g., if an expression is of the form (`a > 5`), this
+   * returns a constraint of the form `isNotNull(a)`
+   */
   def constructIsNotNullConstraints(
-                                     constraints: Set[Expression],
-                                     output: Seq[Attribute]): Set[Expression] = {
+      constraints: Set[Expression],
+      output: Seq[Attribute]): Set[Expression] = {
     // First, we propagate constraints from the null intolerant expressions.
     var isNotNullConstraints: Set[Expression] = constraints.flatMap(inferIsNotNullConstraints)
 
@@ -110,9 +99,9 @@ trait ConstraintHelper {
   }
 
   /**
-    * Infer the Attribute-specific IsNotNull constraints from the null intolerant child expressions
-    * of constraints.
-    */
+   * Infer the Attribute-specific IsNotNull constraints from the null intolerant child expressions
+   * of constraints.
+   */
   private def inferIsNotNullConstraints(constraint: Expression): Seq[Expression] =
     constraint match {
       // When the root is IsNotNull, we can push IsNotNull through the child null intolerant
@@ -125,9 +114,9 @@ trait ConstraintHelper {
     }
 
   /**
-    * Recursively explores the expressions which are null intolerant and returns all attributes
-    * in these expressions.
-    */
+   * Recursively explores the expressions which are null intolerant and returns all attributes
+   * in these expressions.
+   */
   private def scanNullIntolerantAttribute(expr: Expression): Seq[Attribute] = expr match {
     case a: Attribute => Seq(a)
     case _: NullIntolerant => expr.children.flatMap(scanNullIntolerantAttribute)
