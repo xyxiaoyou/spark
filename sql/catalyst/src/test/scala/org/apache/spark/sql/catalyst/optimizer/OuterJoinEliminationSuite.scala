@@ -32,7 +32,7 @@ class OuterJoinEliminationSuite extends PlanTest {
       Batch("Subqueries", Once,
         EliminateSubqueryAliases) ::
       Batch("Outer Join Elimination", Once,
-        EliminateOuterJoin,//(SimpleCatalystConf(caseSensitiveAnalysis = true)),
+        EliminateOuterJoin(SimpleCatalystConf(caseSensitiveAnalysis = true)),
         PushPredicateThroughJoin) :: Nil
   }
 
@@ -41,8 +41,8 @@ class OuterJoinEliminationSuite extends PlanTest {
       Batch("Subqueries", Once,
         EliminateSubqueryAliases) ::
       Batch("Outer Join Elimination", Once,
-        EliminateOuterJoin, // (SimpleCatalystConf(caseSensitiveAnalysis = true,
-          //constraintPropagationEnabled = false)),
+        EliminateOuterJoin(SimpleCatalystConf(caseSensitiveAnalysis = true,
+          constraintPropagationEnabled = false)),
         PushPredicateThroughJoin) :: Nil
   }
 

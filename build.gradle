@@ -328,7 +328,7 @@ subprojects {
     jvmArgs '-Xss4096k'
     maxParallelForks = Runtime.getRuntime().availableProcessors()
     systemProperties 'spark.master.rest.enabled': 'false',
-            'test.src.tables': 'src'
+      'test.src.tables': 'src'
 
     workingDir = "${testResultsBase}/junit"
 
@@ -366,22 +366,22 @@ gradle.taskGraph.whenReady { graph ->
           jvmArgs '-ea'
         }
         environment 'SPARK_DIST_CLASSPATH': test.classpath.asPath,
-                'SPARK_PREPEND_CLASSES': '1',
-                'SPARK_SCALA_VERSION': scalaBinaryVersion,
-                'SPARK_TESTING': '1',
-                'JAVA_HOME': System.getProperty('java.home')
+          'SPARK_PREPEND_CLASSES': '1',
+          'SPARK_SCALA_VERSION': scalaBinaryVersion,
+          'SPARK_TESTING': '1',
+          'JAVA_HOME': System.getProperty('java.home')
         systemProperties 'log4j.configuration': "file:${projectDir}/src/test/resources/log4j.properties",
-                'derby.system.durability': 'test',
-                'java.awt.headless': 'true',
-                'java.io.tmpdir': "${rootProject.buildDir}/tmp",
-                'spark.test.home': snappyProductDir,
-                'spark.project.home': "${project(sparkProjectRoot).projectDir}",
-                'spark.testing': '1',
-                'spark.master.rest.enabled': 'false',
-                'spark.ui.enabled': 'false',
-                'spark.ui.showConsoleProgress': 'false',
-                'spark.unsafe.exceptionOnMemoryLeak': 'true',
-                'spark.memory.debugFill': 'true'
+          'derby.system.durability': 'test',
+          'java.awt.headless': 'true',
+          'java.io.tmpdir': "${rootProject.buildDir}/tmp",
+          'spark.test.home': snappyProductDir,
+          'spark.project.home': "${project(sparkProjectRoot).projectDir}",
+          'spark.testing': '1',
+          'spark.master.rest.enabled': 'false',
+          'spark.ui.enabled': 'false',
+          'spark.ui.showConsoleProgress': 'false',
+          'spark.unsafe.exceptionOnMemoryLeak': 'true',
+          'spark.memory.debugFill': 'true'
 
         testLogging.exceptionFormat = 'full'
 

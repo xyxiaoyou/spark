@@ -18,12 +18,13 @@
 package org.apache.spark.sql.catalyst.optimizer
 
 import scala.annotation.tailrec
+
+import org.apache.spark.sql.catalyst.CatalystConf
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.planning.ExtractFiltersAndInnerJoins
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules._
-import org.apache.spark.sql.internal.SQLConf
 
 /**
  * Reorder the joins and push all the conditions into join, so that the bottom ones have at least
@@ -31,7 +32,7 @@ import org.apache.spark.sql.internal.SQLConf
  *
  * The order of joins will not be changed if all of them already have at least one condition.
  */
-case class ReorderJoin(conf: SQLConf) extends Rule[LogicalPlan] with PredicateHelper {
+object ReorderJoin extends Rule[LogicalPlan] with PredicateHelper {
 
   /**
    * Join a list of plans together and push down the conditions into them.
@@ -42,7 +43,7 @@ case class ReorderJoin(conf: SQLConf) extends Rule[LogicalPlan] with PredicateHe
    * @param conditions a list of condition for join.
    */
   @tailrec
-  final def createOrderedJoin(input: Seq[(LogicalPlan, InnerLike)], conditions: Seq[Expression])
+  def createOrderedJoin(input: Seq[(LogicalPlan, InnerLike)], conditions: Seq[Expression])
     : LogicalPlan = {
     assert(input.size >= 2)
     if (input.size == 2) {
@@ -101,7 +102,7 @@ case class ReorderJoin(conf: SQLConf) extends Rule[LogicalPlan] with PredicateHe
  *
  * This rule should be executed before pushing down the Filter
  */
-case class EliminateOuterJoin(conf: SQLConf) extends Rule[LogicalPlan] with PredicateHelper {
+case class EliminateOuterJoin(conf: CatalystConf) extends Rule[LogicalPlan] with PredicateHelper {
 
   /**
    * Returns whether the expression returns null or false when all inputs are nulls.
@@ -119,7 +120,6 @@ case class EliminateOuterJoin(conf: SQLConf) extends Rule[LogicalPlan] with Pred
   private def buildNewJoinType(filter: Filter, join: Join): JoinType = {
     val conditions = splitConjunctivePredicates(filter.condition) ++
       filter.getConstraints(conf.constraintPropagationEnabled)
-
     val leftConditions = conditions.filter(_.references.subsetOf(join.left.outputSet))
     val rightConditions = conditions.filter(_.references.subsetOf(join.right.outputSet))
 

@@ -39,7 +39,7 @@ class BinaryComparisonSimplificationSuite extends PlanTest with PredicateHelper 
         ConstantFolding,
         BooleanSimplification,
         SimplifyBinaryComparison,
-        PruneFilters) :: Nil // (conf))
+        PruneFilters(conf)) :: Nil
   }
 
   val nullableRelation = LocalRelation('a.int.withNullability(true))

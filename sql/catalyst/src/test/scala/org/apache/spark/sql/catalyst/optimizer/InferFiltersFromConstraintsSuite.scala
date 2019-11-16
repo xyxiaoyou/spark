@@ -32,7 +32,7 @@ class InferFiltersFromConstraintsSuite extends PlanTest {
       Batch("InferAndPushDownFilters", FixedPoint(100),
         PushPredicateThroughJoin,
         PushDownPredicate,
-        InferFiltersFromConstraints,// (SimpleCatalystConf(caseSensitiveAnalysis = true)),
+        InferFiltersFromConstraints(SimpleCatalystConf(caseSensitiveAnalysis = true)),
         CombineFilters) :: Nil
   }
 
@@ -41,8 +41,8 @@ class InferFiltersFromConstraintsSuite extends PlanTest {
       Batch("InferAndPushDownFilters", FixedPoint(100),
         PushPredicateThroughJoin,
         PushDownPredicate,
-        InferFiltersFromConstraints, //(SimpleCatalystConf(caseSensitiveAnalysis = true,
-          //constraintPropagationEnabled = false)),
+        InferFiltersFromConstraints(SimpleCatalystConf(caseSensitiveAnalysis = true,
+          constraintPropagationEnabled = false)),
         CombineFilters) :: Nil
   }
 

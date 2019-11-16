@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.internal
 
+import org.apache.spark.internal.config.ConfigBuilder
 import org.apache.spark.util.Utils
 
 
@@ -28,23 +29,27 @@ import org.apache.spark.util.Utils
  * see the static sql configs via `SparkSession.conf`, but can NOT set/unset them.
  */
 object StaticSQLConf {
-  // &XYZ&
   val globalConfKeys = java.util.Collections.synchronizedSet(new java.util.HashSet[String]())
 
-  import SQLConf.buildStaticConf
+  private def buildConf(key: String): ConfigBuilder = {
+    ConfigBuilder(key).onCreate { entry =>
+      globalConfKeys.add(entry.key)
+      SQLConf.register(entry)
+    }
+  }
 
-  val WAREHOUSE_PATH = buildStaticConf("spark.sql.warehouse.dir")
+  val WAREHOUSE_PATH = buildConf("spark.sql.warehouse.dir")
     .doc("The default location for managed databases and tables.")
     .stringConf
     .createWithDefault(Utils.resolveURI("spark-warehouse").toString)
 
-  val CATALOG_IMPLEMENTATION = buildStaticConf("spark.sql.catalogImplementation")
+  val CATALOG_IMPLEMENTATION = buildConf("spark.sql.catalogImplementation")
     .internal()
     .stringConf
     .checkValues(Set("hive", "in-memory"))
     .createWithDefault("in-memory")
 
-  val GLOBAL_TEMP_DATABASE = buildStaticConf("spark.sql.globalTempDatabase")
+  val GLOBAL_TEMP_DATABASE = buildConf("spark.sql.globalTempDatabase")
     .internal()
     .stringConf
     .createWithDefault("global_temp")
@@ -55,7 +60,7 @@ object StaticSQLConf {
   // value of this property). We will split the JSON string of a schema to its length exceeds the
   // threshold. Note that, this conf is only read in HiveExternalCatalog which is cross-session,
   // that's why this conf has to be a static SQL conf.
-  val SCHEMA_STRING_LENGTH_THRESHOLD = buildStaticConf("spark.sql.sources.schemaStringLengthThreshold")
+  val SCHEMA_STRING_LENGTH_THRESHOLD = buildConf("spark.sql.sources.schemaStringLengthThreshold")
     .doc("The maximum length allowed in a single cell when " +
       "storing additional schema information in Hive's metastore.")
     .internal()
@@ -64,7 +69,7 @@ object StaticSQLConf {
 
   // When enabling the debug, Spark SQL internal table properties are not filtered out; however,
   // some related DDL commands (e.g., ANALYZE TABLE and CREATE TABLE LIKE) might not work properly.
-  val DEBUG_MODE = buildStaticConf("spark.sql.debug")
+  val DEBUG_MODE = buildConf("spark.sql.debug")
     .internal()
     .doc("Only used for internal debugging. Not all functions are supported when it is enabled.")
     .booleanConf

@@ -17,22 +17,18 @@
 
 package org.apache.spark.sql.internal
 
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
 import java.util.{NoSuchElementException, Properties}
+import java.util.concurrent.TimeUnit
+
+import scala.collection.JavaConverters._
+import scala.collection.immutable
 
 import org.apache.hadoop.fs.Path
+
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config._
 import org.apache.spark.network.util.ByteUnit
 import org.apache.spark.sql.catalyst.analysis.Resolver
-import org.apache.spark.sql.internal.SQLConf.{FILES_MAX_PARTITION_BYTES => _, FILES_OPEN_COST_IN_BYTES => _, IGNORE_CORRUPT_FILES => _}
-import org.apache.spark.util.Utils
-import org.apache.spark.{SparkContext, TaskContext}
-import org.slf4j.LoggerFactory
-
-import scala.collection.JavaConverters._
-import scala.collection.immutable
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // This file defines the configuration options for Spark SQL.
@@ -40,12 +36,9 @@ import scala.collection.immutable
 
 
 object SQLConf {
-  val logger = LoggerFactory.getLogger(this.getClass)
+
   private val sqlConfEntries = java.util.Collections.synchronizedMap(
     new java.util.HashMap[String, ConfigEntry[_]]())
-
-  val staticConfKeys: java.util.Set[String] =
-    java.util.Collections.synchronizedSet(new java.util.HashSet[String]())
 
   private[sql] def register(entry: ConfigEntry[_]): Unit = sqlConfEntries.synchronized {
     require(!sqlConfEntries.containsKey(entry.key),
@@ -53,99 +46,11 @@ object SQLConf {
     sqlConfEntries.put(entry.key, entry)
   }
 
-  /**
-    * Default config. Only used when there is no active SparkSession for the thread.
-    * See [[get]] for more information.
-    */
-  private lazy val fallbackConf = new ThreadLocal[SQLConf] {
-    override def initialValue: SQLConf = new SQLConf
-  }
-
   private[sql] object SQLConfigBuilder {
 
     def apply(key: String): ConfigBuilder = new ConfigBuilder(key).onCreate(register)
 
   }
-
-  def buildStaticConf(key: String): ConfigBuilder = {
-    ConfigBuilder(key).onCreate { entry =>
-      staticConfKeys.add(entry.key)
-      SQLConf.register(entry)
-    }
-  }
-
-  /** See [[get]] for more information. */
-  def getFallbackConf: SQLConf = fallbackConf.get()
-
-  private lazy val existingConf = new ThreadLocal[SQLConf] {
-    override def initialValue: SQLConf = null
-  }
-
-  def withExistingConf[T](conf: SQLConf)(f: => T): T = {
-    existingConf.set(conf)
-    try {
-      f
-    } finally {
-      existingConf.remove()
-    }
-  }
-
-  /**
-    * Defines a getter that returns the SQLConf within scope.
-    * See [[get]] for more information.
-    */
-  private val confGetter = new AtomicReference[() => SQLConf](() => fallbackConf.get())
-
-  /**
-    * Sets the active config object within the current scope.
-    * See [[get]] for more information.
-    */
-  def setSQLConfGetter(getter: () => SQLConf): Unit = {
-    confGetter.set(getter)
-  }
-
-  /**
-    * Returns the active config object within the current scope. If there is an active SparkSession,
-    * the proper SQLConf associated with the thread's active session is used. If it's called from
-    * tasks in the executor side, a SQLConf will be created from job local properties, which are set
-    * and propagated from the driver side.
-    *
-    * The way this works is a little bit convoluted, due to the fact that config was added initially
-    * only for physical plans (and as a result not in sql/catalyst module).
-    *
-    * The first time a SparkSession is instantiated, we set the [[confGetter]] to return the
-    * active SparkSession's config. If there is no active SparkSession, it returns using the thread
-    * local [[fallbackConf]]. The reason [[fallbackConf]]
-    * is a thread local (rather than just a conf)
-    * is to support setting different config options for different threads so we can potentially
-    * run tests in parallel. At the time this feature was implemented, this was a no-op since we
-    * run unit tests (that does not involve SparkSession) in serial order.
-    */
-  def get: SQLConf = {
-    if (TaskContext.get != null) {
-      new ReadOnlySQLConf(TaskContext.get())
-    } else {
-      val isSchedulerEventLoopThread = SparkContext.getActive
-        .map(_.dagScheduler.eventProcessLoop.eventThread)
-        .exists(_.getId == Thread.currentThread().getId)
-      if (isSchedulerEventLoopThread) {
-        // DAGScheduler event loop thread does not have an active SparkSession, the `confGetter`
-        // will return `fallbackConf` which is unexpected. Here we require the caller to get the
-        // conf within `withExistingConf`, otherwise fail the query.
-        val conf = existingConf.get()
-        if (conf != null) {
-          conf
-        } else if (Utils.isTesting) {
-          throw new RuntimeException("Cannot get SQLConf inside scheduler event loop thread.")
-        } else {
-          confGetter.get()()
-        }
-      } else {
-        confGetter.get()()
-      }
-    }
-  }
-
 
   val OPTIMIZER_MAX_ITERATIONS = SQLConfigBuilder("spark.sql.optimizer.maxIterations")
     .internal()
@@ -441,8 +346,7 @@ object SQLConf {
       .intConf
       .createWithDefault(200)
 
-  val THRIFTSERVER_UI_SESSION_LIMIT =
-    SQLConfigBuilder("spark.sql.thriftserver.ui.retainedSessions")
+  val THRIFTSERVER_UI_SESSION_LIMIT = SQLConfigBuilder("spark.sql.thriftserver.ui.retainedSessions")
     .doc("The number of SQL client sessions kept in the JDBC/ODBC web UI history.")
     .intConf
     .createWithDefault(200)
@@ -619,6 +523,16 @@ object SQLConf {
     .intConf
     .createWithDefault(100)
 
+  val MAX_BATCHES_TO_RETAIN_IN_MEMORY =
+    SQLConfigBuilder("spark.sql.streaming.maxBatchesToRetainInMemory")
+    .internal()
+    .doc("The maximum number of batches which will be retained in memory to avoid " +
+      "loading from files. The value adjusts a trade-off between memory usage vs cache miss: " +
+      "'2' covers both success and direct failure cases, '1' covers only success case, " +
+      "and '0' covers extreme case - disable cache to maximize memory size of executors.")
+    .intConf
+    .createWithDefault(2)
+
   val UNSUPPORTED_OPERATION_CHECK_ENABLED =
     SQLConfigBuilder("spark.sql.streaming.unsupportedOperationCheck")
       .internal()
@@ -746,12 +660,6 @@ object SQLConf {
     .booleanConf
     .createWithDefault(false)
 
-  val CBO_ENABLED =
-    SQLConfigBuilder("spark.sql.cbo.enabled")
-      .doc("Enables CBO for estimation of plan statistics when set true.")
-      .booleanConf
-      .createWithDefault(false)
-
   object Deprecated {
     val MAPRED_REDUCE_TASKS = "mapred.reduce.tasks"
   }
@@ -837,6 +745,8 @@ class SQLConf extends Serializable with Logging {
     getConf(SHUFFLE_MIN_NUM_POSTSHUFFLE_PARTITIONS)
 
   def minBatchesToRetain: Int = getConf(MIN_BATCHES_TO_RETAIN)
+
+  def maxBatchesToRetainInMemory: Int = getConf(MAX_BATCHES_TO_RETAIN_IN_MEMORY)
 
   def parquetFilterPushDown: Boolean = getConf(PARQUET_FILTER_PUSHDOWN_ENABLED)
 
@@ -968,15 +878,11 @@ class SQLConf extends Serializable with Logging {
 
   /** Set the given Spark SQL configuration property using a `string` value. */
   def setConfString(key: String, value: String): Unit = {
-    // logger.error("---ULNIT---SQLConf->setConfString:{}-{}",
-     //  Array(key, value): _*)
     require(key != null, "key cannot be null")
     require(value != null, s"value cannot be null for key: $key")
     val entry = sqlConfEntries.get(key)
     if (entry != null) {
       // Only verify configs in the SQLConf object
-      // logger.error("---ULNIT---SQLConf->sqlConfEntries->get:{}-{}",
-      //   Array(key, value): _*)
       entry.valueConverter(value)
     }
     setConfWithCheck(key, value)
@@ -1017,7 +923,6 @@ class SQLConf extends Serializable with Logging {
    */
   def getConf[T](entry: ConfigEntry[T]): T = {
     require(sqlConfEntries.get(entry.key) == entry, s"$entry is not registered")
-    // logger.error("---ULNIT---SQLConf->getConf:{}", entry.key)
     entry.readFrom(reader)
   }
 
@@ -1068,7 +973,6 @@ class SQLConf extends Serializable with Logging {
   }
 
   private def setConfWithCheck(key: String, value: String): Unit = {
-    // logger.error("---ULNIT---SQLConf->setConfWithCheck:{}-{}", Array(key, value): _*)
     settings.put(key, value)
   }
 

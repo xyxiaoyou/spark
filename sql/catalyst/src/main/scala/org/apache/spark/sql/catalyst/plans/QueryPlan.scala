@@ -37,17 +37,12 @@ package org.apache.spark.sql.catalyst.plans
 
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.trees.TreeNode
-import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, StructType}
-
-
 
 abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanType] {
   self: PlanType =>
 
   def output: Seq[Attribute]
-
-  def conf: SQLConf = SQLConf.get
 
   /**
    * Extracts the relevant constraints from a given set of constraints based on the attributes that
@@ -201,6 +196,34 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
       expr.children.exists(_.semanticEquals(e))
     }
   }
+
+  /**
+   * An [[ExpressionSet]] that contains invariants about the rows output by this operator. For
+   * example, if this set contains the expression `a = 2` then that expression is guaranteed to
+   * evaluate to `true` for all rows produced.
+   */
+  lazy val constraints: ExpressionSet = ExpressionSet(getRelevantConstraints(validConstraints))
+
+  /**
+   * Returns [[constraints]] depending on the config of enabling constraint propagation. If the
+   * flag is disabled, simply returning an empty constraints.
+   */
+  private[spark] def getConstraints(constraintPropagationEnabled: Boolean): ExpressionSet =
+    if (constraintPropagationEnabled) {
+      constraints
+    } else {
+      ExpressionSet(Set.empty)
+    }
+
+  /**
+   * This method can be overridden by any child class of QueryPlan to specify a set of constraints
+   * based on the given operator's constraint propagation logic. These constraints are then
+   * canonicalized and filtered automatically to contain only those attributes that appear in the
+   * [[outputSet]].
+   *
+   * See [[Canonicalize]] for more details.
+   */
+  protected def validConstraints: Set[Expression] = Set.empty
 
   /**
    * Returns the set of attributes that are output by this node.

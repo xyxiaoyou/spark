@@ -28,16 +28,13 @@ import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules._
-import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
-import org.slf4j.LoggerFactory
-
 
 /**
  * Abstract class all optimizers should inherit of, contains the standard batches (extending
  * Optimizers can override this.
  */
-abstract class Optimizer(sessionCatalog: SessionCatalog, conf: SQLConf)
+abstract class Optimizer(sessionCatalog: SessionCatalog, conf: CatalystConf)
   extends RuleExecutor[LogicalPlan] {
 
   protected val fixedPoint = FixedPoint(conf.optimizerMaxIterations)
@@ -75,11 +72,11 @@ abstract class Optimizer(sessionCatalog: SessionCatalog, conf: SQLConf)
     Batch("Operator Optimizations", fixedPoint,
       // Operator push down
       PushProjectionThroughUnion,
-      ReorderJoin(conf),
+      ReorderJoin,
       EliminateOuterJoin(conf),
       PushPredicateThroughJoin,
       PushDownPredicate,
-      LimitPushDown(conf),
+      LimitPushDown,
       ColumnPruning,
       InferFiltersFromConstraints(conf),
       // Operator combine
@@ -90,7 +87,7 @@ abstract class Optimizer(sessionCatalog: SessionCatalog, conf: SQLConf)
       CombineLimits,
       CombineUnions,
       // Constant folding and strength reduction
-      NullPropagation(conf),
+      NullPropagation,
       FoldablePropagation,
       OptimizeIn(conf),
       ConstantFolding,
@@ -258,7 +255,7 @@ object RemoveRedundantProject extends Rule[LogicalPlan] {
 /**
  * Pushes down [[LocalLimit]] beneath UNION ALL and beneath the streamed inputs of outer joins.
  */
-case class LimitPushDown(conf: SQLConf) extends Rule[LogicalPlan] {
+object LimitPushDown extends Rule[LogicalPlan] {
 
   private def stripGlobalLimitIfPresent(plan: LogicalPlan): LogicalPlan = {
     plan match {
@@ -609,18 +606,14 @@ object CollapseWindow extends Rule[LogicalPlan] {
  * Note: While this optimization is applicable to all types of join, it primarily benefits Inner and
  * LeftSemi joins.
  */
-case class InferFiltersFromConstraints(conf: SQLConf) extends Rule[LogicalPlan]
-    with PredicateHelper with ConstraintHelper {
-  val logger = LoggerFactory.getLogger(this.getClass)
-  def apply(plan: LogicalPlan): LogicalPlan = {
-    // logger.error("---ULNIT---InferFiltersFromConstraints->constraintPropagationEnabled:{}",
-     // conf.constraintPropagationEnabled)
-    if (conf.constraintPropagationEnabled) {
-      inferFilters(plan)
-    } else {
-      plan
-    }
+case class InferFiltersFromConstraints(conf: CatalystConf)
+    extends Rule[LogicalPlan] with PredicateHelper {
+  def apply(plan: LogicalPlan): LogicalPlan = if (conf.constraintPropagationEnabled) {
+    inferFilters(plan)
+  } else {
+    plan
   }
+
 
   private def inferFilters(plan: LogicalPlan): LogicalPlan = plan transform {
     case filter @ Filter(condition, child) =>
@@ -633,51 +626,21 @@ case class InferFiltersFromConstraints(conf: SQLConf) extends Rule[LogicalPlan]
       }
 
     case join @ Join(left, right, joinType, conditionOpt) =>
-      joinType match {
-        // For inner join, we can infer additional filters for both sides. LeftSemi is kind of an
-        // inner join, it just drops the right side in the final output.
-        case _: InnerLike | LeftSemi =>
-          val allConstraints = getAllConstraints(left, right, conditionOpt)
-          val newLeft = inferNewFilter(left, allConstraints)
-          val newRight = inferNewFilter(right, allConstraints)
-          join.copy(left = newLeft, right = newRight)
-
-        // For right outer join, we can only infer additional filters for left side.
-        case RightOuter =>
-          val allConstraints = getAllConstraints(left, right, conditionOpt)
-          val newLeft = inferNewFilter(left, allConstraints)
-          join.copy(left = newLeft)
-
-        // For left join, we can only infer additional filters for right side.
-        case LeftOuter | LeftAnti =>
-          val allConstraints = getAllConstraints(left, right, conditionOpt)
-          val newRight = inferNewFilter(right, allConstraints)
-          join.copy(right = newRight)
-
-        case _ => join
+      // Only consider constraints that can be pushed down completely to either the left or the
+      // right child
+      val constraints = join.constraints.filter { c =>
+        c.references.subsetOf(left.outputSet) || c.references.subsetOf(right.outputSet)
       }
-  }
-
-  private def getAllConstraints(
-                                 left: LogicalPlan,
-                                 right: LogicalPlan,
-                                 conditionOpt: Option[Expression]): Set[Expression] = {
-    val baseConstraints = left.constraints.union(right.constraints)
-      .union(conditionOpt.map(splitConjunctivePredicates).getOrElse(Nil).toSet)
-    baseConstraints.union(inferAdditionalConstraints(baseConstraints))
-  }
-
-  private def inferNewFilter(plan: LogicalPlan, constraints: Set[Expression]): LogicalPlan = {
-    val newPredicates = constraints
-      .union(constructIsNotNullConstraints(constraints, plan.output))
-      .filter { c =>
-        c.references.nonEmpty && c.references.subsetOf(plan.outputSet) && c.deterministic
-      } -- plan.constraints
-    if (newPredicates.isEmpty) {
-      plan
-    } else {
-      Filter(newPredicates.reduce(And), plan)
-    }
+      // Remove those constraints that are already enforced by either the left or the right child
+      val additionalConstraints = constraints -- (left.constraints ++ right.constraints)
+      val newConditionOpt = conditionOpt match {
+        case Some(condition) =>
+          val newFilters = additionalConstraints -- splitConjunctivePredicates(condition)
+          if (newFilters.nonEmpty) Option(And(newFilters.reduce(And), condition)) else None
+        case None =>
+          additionalConstraints.reduceOption(And)
+      }
+      if (newConditionOpt.isDefined) Join(left, right, joinType, newConditionOpt) else join
   }
 }
 
@@ -741,7 +704,7 @@ object EliminateSorts extends Rule[LogicalPlan] {
  * 2) by substituting a dummy empty relation when the filter will always evaluate to `false`.
  * 3) by eliminating the always-true conditions given the constraints on the child's output.
  */
-case class PruneFilters(conf: SQLConf) extends Rule[LogicalPlan] with PredicateHelper {
+case class PruneFilters(conf: CatalystConf) extends Rule[LogicalPlan] with PredicateHelper {
   def apply(plan: LogicalPlan): LogicalPlan = plan transform {
     // If the filter condition always evaluate to true, remove the filter.
     case Filter(Literal(true, BooleanType), child) => child
@@ -1085,7 +1048,7 @@ object CombineLimits extends Rule[LogicalPlan] {
  * the join between R and S is not a cartesian product and therefore should be allowed.
  * The predicate R.r = S.s is not recognized as a join condition until the ReorderJoin rule.
  */
-case class CheckCartesianProducts(conf: SQLConf)
+case class CheckCartesianProducts(conf: CatalystConf)
     extends Rule[LogicalPlan] with PredicateHelper {
   /**
    * Check if a join is a cartesian product. Returns true if

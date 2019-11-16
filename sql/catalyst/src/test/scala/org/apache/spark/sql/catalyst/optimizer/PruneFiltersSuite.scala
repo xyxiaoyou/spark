@@ -34,7 +34,7 @@ class PruneFiltersSuite extends PlanTest {
         EliminateSubqueryAliases) ::
       Batch("Filter Pushdown and Pruning", Once,
         CombineFilters,
-        PruneFilters ,// (SimpleCatalystConf(caseSensitiveAnalysis = true)),
+        PruneFilters(SimpleCatalystConf(caseSensitiveAnalysis = true)),
         PushDownPredicate,
         PushPredicateThroughJoin) :: Nil
   }
@@ -45,8 +45,8 @@ class PruneFiltersSuite extends PlanTest {
         EliminateSubqueryAliases) ::
       Batch("Filter Pushdown and Pruning", Once,
         CombineFilters,
-        PruneFilters,// (SimpleCatalystConf(caseSensitiveAnalysis = true,
-          // constraintPropagationEnabled = false)),
+        PruneFilters(SimpleCatalystConf(caseSensitiveAnalysis = true,
+          constraintPropagationEnabled = false)),
         PushDownPredicate,
         PushPredicateThroughJoin) :: Nil
   }
