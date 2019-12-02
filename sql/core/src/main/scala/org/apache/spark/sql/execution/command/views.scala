@@ -18,6 +18,7 @@
 package org.apache.spark.sql.execution.command
 
 import scala.util.control.NonFatal
+import scala.collection.mutable
 
 import org.apache.spark.sql.{AnalysisException, Row, SparkSession}
 import org.apache.spark.sql.catalyst.{SQLBuilder, TableIdentifier}
@@ -94,6 +95,8 @@ case class CreateViewCommand(
     replace: Boolean,
     viewType: ViewType)
   extends RunnableCommand {
+
+  import ViewHelper._
 
   override protected def innerChildren: Seq[QueryPlan[_]] = Seq(child)
 
@@ -173,7 +176,7 @@ case class CreateViewCommand(
       }
     } else {
       // Create the view if it doesn't exist.
-      catalog.createTable(prepareTable(sparkSession, aliasedPlan), ignoreIfExists = false)
+      catalog.createTable(prepareTable(sparkSession, analyzedPlan), ignoreIfExists = false)
     }
     Seq.empty[Row]
   }
@@ -210,29 +213,73 @@ case class CreateViewCommand(
    * Returns a [[CatalogTable]] that can be used to save in the catalog. This comment canonicalize
    * SQL based on the analyzed plan, and also creates the proper schema for the view.
    */
-  private def prepareTable(sparkSession: SparkSession, aliasedPlan: LogicalPlan): CatalogTable = {
-    val viewSQL: String = new SQLBuilder(aliasedPlan).toSQL
+  //private def prepareTable(sparkSession: SparkSession, aliasedPlan: LogicalPlan): CatalogTable = {
+   // val viewSQL: String = new SQLBuilder(aliasedPlan).toSQL
 
     // Validate the view SQL - make sure we can parse it and analyze it.
     // If we cannot analyze the generated query, there is probably a bug in SQL generation.
-    try {
-      sparkSession.sql(viewSQL).queryExecution.assertAnalyzed()
-    } catch {
-      case NonFatal(e) =>
-        throw new RuntimeException(s"Failed to analyze the canonicalized SQL: $viewSQL", e)
+  //  try {
+   //   sparkSession.sql(viewSQL).queryExecution.assertAnalyzed()
+   // } catch {
+   //   case NonFatal(e) =>
+   //     throw new RuntimeException(s"Failed to analyze the canonicalized SQL: $viewSQL", e)
+   // }
+
+  //  CatalogTable(
+   //   identifier = name,
+   //   tableType = CatalogTableType.VIEW,
+    //  storage = CatalogStorageFormat.empty,
+  //    schema = aliasedPlan.schema,
+   //   properties = properties,
+   //   viewOriginalText = originalText,
+  //    viewText = Some(viewSQL),
+   //   comment = comment
+   // )
+  //}
+
+  /**
+     * If `userSpecifiedColumns` is defined, alias the analyzed plan to the user specified columns,
+     * else return the analyzed plan directly.
+     */
+    private def aliasPlan(session: SparkSession, analyzedPlan: LogicalPlan): LogicalPlan = {
+      if (userSpecifiedColumns.isEmpty) {
+        analyzedPlan
+      } else {
+        val projectList = analyzedPlan.output.zip(userSpecifiedColumns).map {
+          case (attr, (colName, None)) => Alias(attr, colName)()
+          case (attr, (colName, Some(colComment))) =>
+            val meta = new MetadataBuilder().putString("comment", colComment).build()
+            Alias(attr, colName)(explicitMetadata = Some(meta))
+        }
+        session.sessionState.executePlan(Project(projectList, analyzedPlan)).analyzed
+      }
     }
 
-    CatalogTable(
-      identifier = name,
-      tableType = CatalogTableType.VIEW,
-      storage = CatalogStorageFormat.empty,
-      schema = aliasedPlan.schema,
-      properties = properties,
-      viewOriginalText = originalText,
-      viewText = Some(viewSQL),
-      comment = comment
-    )
-  }
+    /**
+     * Returns a [[CatalogTable]] that can be used to save in the catalog. Generate the view-specific
+     * properties(e.g. view default database, view query output column names) and store them as
+     * properties in the CatalogTable, and also creates the proper schema for the view.
+     */
+    private def prepareTable(session: SparkSession, analyzedPlan: LogicalPlan): CatalogTable = {
+      if (originalText.isEmpty) {
+        throw new AnalysisException(
+          "It is not allowed to create a persisted view from the Dataset API")
+      }
+
+      val newProperties = generateViewProperties(properties, session, analyzedPlan)
+
+      CatalogTable(
+        identifier = name,
+        tableType = CatalogTableType.VIEW,
+        storage = CatalogStorageFormat.empty,
+        schema = aliasPlan(session, analyzedPlan).schema,
+        properties = newProperties,
+        viewOriginalText = originalText,
+        viewText = originalText,
+        comment = comment
+      )
+    }
+
 }
 
 /**
@@ -251,6 +298,8 @@ case class AlterViewAsCommand(
     name: TableIdentifier,
     originalText: String,
     query: LogicalPlan) extends RunnableCommand {
+
+  import ViewHelper._
 
   override protected def innerChildren: Seq[QueryPlan[_]] = Seq(query)
 
@@ -278,18 +327,92 @@ case class AlterViewAsCommand(
     val viewSQL: String = new SQLBuilder(analyzedPlan).toSQL
     // Validate the view SQL - make sure we can parse it and analyze it.
     // If we cannot analyze the generated query, there is probably a bug in SQL generation.
-    try {
-      session.sql(viewSQL).queryExecution.assertAnalyzed()
-    } catch {
-      case NonFatal(e) =>
-        throw new RuntimeException(s"Failed to analyze the canonicalized SQL: $viewSQL", e)
-    }
+    //try {
+     // session.sql(viewSQL).queryExecution.assertAnalyzed()
+    //} catch {
+    //  case NonFatal(e) =>
+    //    throw new RuntimeException(s"Failed to analyze the canonicalized SQL: $viewSQL", e)
+    //}
+
+    //val updatedViewMeta = viewMeta.copy(
+    //  schema = analyzedPlan.schema,
+    //  viewOriginalText = Some(originalText),
+    //  viewText = Some(viewSQL))
+
+    val newProperties = generateViewProperties(viewMeta.properties, session, analyzedPlan)
 
     val updatedViewMeta = viewMeta.copy(
       schema = analyzedPlan.schema,
+      properties = newProperties,
       viewOriginalText = Some(originalText),
-      viewText = Some(viewSQL))
+      viewText = Some(originalText))
 
     session.sessionState.catalog.alterTable(updatedViewMeta)
+  }
+}
+
+object ViewHelper {
+
+  import CatalogTable._
+
+  /**
+   * Generate the view default database in `properties`.
+   */
+  private def generateViewDefaultDatabase(databaseName: String): Map[String, String] = {
+    Map(VIEW_DEFAULT_DATABASE -> databaseName)
+  }
+
+  /**
+   * Generate the view query output column names in `properties`.
+   */
+  private def generateQueryColumnNames(columns: Seq[String]): Map[String, String] = {
+    val props = new mutable.HashMap[String, String]
+    if (columns.nonEmpty) {
+      props.put(VIEW_QUERY_OUTPUT_NUM_COLUMNS, columns.length.toString)
+      columns.zipWithIndex.foreach { case (colName, index) =>
+        props.put(s"$VIEW_QUERY_OUTPUT_COLUMN_NAME_PREFIX$index", colName)
+      }
+    }
+    props.toMap
+  }
+
+  /**
+   * Remove the view query output column names in `properties`.
+   */
+  private def removeQueryColumnNames(properties: Map[String, String]): Map[String, String] = {
+    // We can't use `filterKeys` here, as the map returned by `filterKeys` is not serializable,
+    // while `CatalogTable` should be serializable.
+    properties.filterNot { case (key, _) =>
+      key.startsWith(VIEW_QUERY_OUTPUT_PREFIX)
+    }
+  }
+
+  /**
+   * Generate the view properties in CatalogTable, including:
+   * 1. view default database that is used to provide the default database name on view resolution.
+   * 2. the output column names of the query that creates a view, this is used to map the output of
+   *    the view child to the view output during view resolution.
+   *
+   * @param properties the `properties` in CatalogTable.
+   * @param session the spark session.
+   * @param analyzedPlan the analyzed logical plan that represents the child of a view.
+   * @return new view properties including view default database and query column names properties.
+   */
+  def generateViewProperties(
+      properties: Map[String, String],
+      session: SparkSession,
+      analyzedPlan: LogicalPlan): Map[String, String] = {
+    // Generate the query column names, throw an AnalysisException if there exists duplicate column
+    // names.
+    val queryOutput = analyzedPlan.schema.fieldNames
+    assert(queryOutput.distinct.size == queryOutput.size,
+      s"The view output ${queryOutput.mkString("(", ",", ")")} contains duplicate column name.")
+
+    // Generate the view default database name.
+    val viewDefaultDatabase = session.sessionState.catalog.getCurrentDatabase
+
+    removeQueryColumnNames(properties) ++
+      generateViewDefaultDatabase(viewDefaultDatabase) ++
+      generateQueryColumnNames(queryOutput)
   }
 }
